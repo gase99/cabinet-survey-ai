@@ -21,3 +21,12 @@ Recommended initial option: Docker container on a small VPS with restart policy,
 - Backend service credentials with least privilege
 
 Never commit secrets. Do not ask customers to paste bot tokens into the app. Telegram delivery is optional and must not block in-app downloads.
+
+## Current backend contract (pre-release)
+`TELEGRAM_WEBHOOK_SECRET` is mandatory for worker access. Missing configuration
+returns HTTP 503; missing/incorrect credentials return HTTP 401. Pairing verification
+and internal delivery endpoints accept `X-Webhook-Secret`; webhook authentication
+uses `X-Telegram-Bot-Api-Secret-Token`. Query-string credentials are not accepted.
+New pairing codes replace prior unused codes and expire after ten minutes.
+The webhook currently acknowledges updates only: update processing and external
+worker delivery are still release blockers, not completed functionality.

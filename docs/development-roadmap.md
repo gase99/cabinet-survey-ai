@@ -1,6 +1,6 @@
 # Development roadmap (phase-gated)
 
-A phase is complete only after implementation, automated tests, manual acceptance evidence and documentation review. Stop for user approval before starting the next phase.
+A phase is complete only after implementation, automated tests, manual acceptance evidence and documentation review. Continue autonomously between phases; request input only for genuine blockers or required authorization.
 
 1. Foundation: repository conventions, architecture, CI, environment and contracts.
 2. Flutter shell: Android/Web bootstrap, navigation, themes, Persian RTL and English.
@@ -17,3 +17,6 @@ A phase is complete only after implementation, automated tests, manual acceptanc
 
 ## Definition of done
 No fabricated measurements; approval enforced; geometry golden tests pass; Android and Web tested independently; offline workflows tested disconnected; PDF scale verified; Telegram delivery tested end-to-end on externally hosted worker; security and backups reviewed.
+
+## Verified implementation status
+See [project-status.md](project-status.md) for executed tests, remaining gates and known limitations. A passing backend suite does not mark a product phase complete.
