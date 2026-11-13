@@ -5,6 +5,11 @@ from app.core.database import get_db
 from app.core.deps import require_admin
 from app.models.db_models import User, AIConfig, AIUsageLog, AuditEvent
 from app.core.config import settings
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Literal
+from app.services.provider_config import encrypt_key
+from app.ai.provider import AIUnavailableError
+from app.services.audit import log_audit
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -31,24 +36,36 @@ def get_ai_config(db: Session = Depends(get_db), admin: User = Depends(require_a
     # Do not return raw key
     return [{"id": c.id, "provider": c.provider, "model": c.model, "enabled": c.enabled, "usage_limit_per_day": c.usage_limit_per_day, "has_key": bool(c.api_key_encrypted)} for c in configs]
 
+class ProviderConfigInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["disabled", "local", "deterministic", "openai_compatible"]
+    model: str | None = Field(default=None,max_length=100)
+    enabled: bool = True
+    usage_limit_per_day: int | None = Field(default=None,ge=1)
+    api_key: str | None = Field(default=None,min_length=1,max_length=256)
+
+
 @router.put("/ai-config")
-def upsert_ai_config(payload: dict, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    provider = payload.get("provider")
-    if not provider:
-        raise HTTPException(status_code=400, detail="provider required")
-    cfg = db.query(AIConfig).filter(AIConfig.provider == provider).first()
+def upsert_ai_config(payload: ProviderConfigInput, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    # Validate/encrypt before changing the ORM object. No successful fake key save.
+    encrypted = None
+    if payload.api_key:
+        try:
+            encrypted = encrypt_key(payload.api_key)
+        except AIUnavailableError:
+            raise HTTPException(503, "Provider credential storage requires valid encryption configuration")
+    cfg = db.query(AIConfig).filter_by(provider=payload.provider).first()
     if not cfg:
-        cfg = AIConfig(provider=provider)
+        cfg = AIConfig(provider=payload.provider)
         db.add(cfg)
-    cfg.model = payload.get("model")
-    cfg.enabled = payload.get("enabled", True)
-    cfg.usage_limit_per_day = payload.get("usage_limit_per_day")
-    if payload.get("api_key"):
-        # In production, encrypt at rest; here store as is but flagged
-        cfg.api_key_encrypted = payload["api_key"][:4] + "***"  # don't store raw in demo; real would encrypt
-        # We also update settings in memory for demo (restart would reload from DB/env)
+    cfg.model = payload.model
+    cfg.enabled = payload.enabled
+    cfg.usage_limit_per_day = payload.usage_limit_per_day
+    if encrypted:
+        cfg.api_key_encrypted = encrypted
     db.commit()
-    return {"status": "saved", "provider": provider}
+    log_audit(db,user_id=admin.id,project_id=None,action="admin.ai_config_update",entity_type="ai_config",entity_id=cfg.id)
+    return {"status":"saved","provider":payload.provider}
 
 @router.get("/ai-usage")
 def ai_usage(limit: int = 50, db: Session = Depends(get_db), admin: User = Depends(require_admin)):

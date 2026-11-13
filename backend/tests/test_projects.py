@@ -61,3 +61,13 @@ def test_project_ownership(client):
     # Should not see first user's project
     r = client.get(f"/api/v1/projects/{pid}", headers=h2h)
     assert r.status_code in (403,404)
+
+
+def test_project_update_rejects_foreign_customer(client,auth_headers):
+    client.post('/api/v1/auth/register',json={'email':'foreign@example.com','password':'ForeignPass123!','display_name':'Foreign'})
+    token=client.post('/api/v1/auth/login',json={'email':'foreign@example.com','password':'ForeignPass123!'}).json()['access_token']
+    foreign={'Authorization':f'Bearer {token}'}
+    customer=client.post('/api/v1/customers',headers=foreign,json={'name':'Private fixture'}).json()['id']
+    project=client.post('/api/v1/projects',headers=auth_headers,json={'title':'Owned'}).json()['id']
+    assert client.put(f'/api/v1/projects/{project}',headers=auth_headers,json={'customer_id':customer}).status_code==400
+    assert client.get(f'/api/v1/projects/{project}',headers=auth_headers).json()['customer_id'] is None

@@ -20,3 +20,7 @@
 - Remote Flutter analysis, authored tests and production Web compilation passed at ea97a35; Android gates still pending.
 - Harden bounded uploads, file signatures and MIME matching; local backend suite now 74 passing tests.
 - Make password recovery honestly unavailable until an email service is configured.
+- Replace fake masked provider-key storage with Fernet encryption and real server-side loading; enforce provider disable/daily quota.
+- Require explicitly measured wall heights and validate project-customer ownership on reassignment.
+- Clean-venv verification: 79 backend tests and 4 worker tests pass; dependency check clean.
+- Remote Chrome-platform tests and production Web build pass; Android build status remains pending.

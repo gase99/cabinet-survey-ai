@@ -66,6 +66,10 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
         raise HTTPException(status_code=404, detail="Project not found")
     assert_ownership(p, user)
     data = payload.model_dump(exclude_unset=True)
+    if data.get("customer_id"):
+        customer = db.get(Customer,data["customer_id"])
+        if customer is None or customer.owner_id != p.owner_id:
+            raise HTTPException(400,"Invalid customer_id")
     # Handle status transitions: deleted via status field not allowed here; use delete endpoint
     # Allow archive/restore via status
     for k, v in data.items():

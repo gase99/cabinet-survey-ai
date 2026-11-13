@@ -8,6 +8,7 @@ from app.ai.provider import get_ai_provider, AIUnavailableError, parse_text_meas
 from datetime import datetime, timezone
 import time
 from app.services.uploads import validated_upload
+from app.services.provider_config import configured_provider
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -41,7 +42,7 @@ async def sketch_analysis(
     data, _ = await validated_upload(file, images_only=True)
 
     try:
-        provider = get_ai_provider(settings.ai_provider)
+        provider = configured_provider(db)
         result = await provider.analyze_sketch(data, language_hint=language_hint)
         db.add(AIUsageLog(user_id=user.id, provider=settings.ai_provider, success=True))
         db.commit()

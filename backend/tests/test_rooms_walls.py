@@ -57,3 +57,10 @@ def test_svg_cannot_read_room_from_another_project(client, auth_headers):
     room = client.post(f"/api/v1/projects/{other}/rooms", headers=other_headers, json={"label": "Private room", "room_type": "rectangular"}).json()["id"]
     result = client.get(f"/api/v1/drawings/{own}/plan.svg", params={"room_id": room}, headers=auth_headers)
     assert result.status_code == 404
+
+
+def test_missing_height_is_not_invented(client,auth_headers):
+    project=client.post('/api/v1/projects',headers=auth_headers,json={'title':'Missing height'}).json()['id']
+    room=client.post(f'/api/v1/projects/{project}/rooms',headers=auth_headers,json={'label':'Kitchen'}).json()['id']
+    response=client.post(f'/api/v1/rooms/{room}/walls',headers=auth_headers,json={'label':'A','length_mm':3000,'source':'sketch_ai'})
+    assert response.status_code==422

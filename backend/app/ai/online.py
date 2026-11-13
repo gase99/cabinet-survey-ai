@@ -44,11 +44,14 @@ matching this schema: ''' + json.dumps(Extraction.model_json_schema())
 class OpenAICompatibleProvider:
     def __init__(self, client=None):
         self.client=client
+        self.api_key=settings.ai_api_key
+        self.model=settings.ai_model
+        self.base_url=settings.ai_base_url
 
     async def analyze_sketch(self,image_bytes,*,language_hint='fa,en'):
-        if not settings.ai_api_key or not settings.ai_model or not settings.ai_base_url:
+        if not self.api_key or not self.model or not self.base_url:
             raise AIUnavailableError('Configure AI_API_KEY, AI_MODEL and AI_BASE_URL')
-        if not settings.ai_base_url.startswith('https://'):
+        if not self.base_url.startswith('https://'):
             raise AIUnavailableError('AI_BASE_URL must use HTTPS')
         try:
             with Image.open(io.BytesIO(image_bytes)) as image:
@@ -58,14 +61,14 @@ class OpenAICompatibleProvider:
             raise AIUnavailableError('Invalid sketch image')
         if mime not in {'image/jpeg','image/png','image/webp'}:
             raise AIUnavailableError('Unsupported sketch image')
-        body={'model':settings.ai_model,'temperature':0,'messages':[
+        body={'model':self.model,'temperature':0,'messages':[
             {'role':'system','content':SYSTEM},
             {'role':'user','content':[{'type':'text','text':f'Language hints: {language_hint}. Return candidates for review only.'},
                 {'type':'image_url','image_url':{'url':f'data:{mime};base64,{base64.b64encode(image_bytes).decode()}'}}]}],
             'response_format':{'type':'json_object'}}
         async def send(client):
-            response=await client.post(settings.ai_base_url.rstrip('/')+'/chat/completions',
-                headers={'Authorization':f'Bearer {settings.ai_api_key}'},json=body)
+            response=await client.post(self.base_url.rstrip('/')+'/chat/completions',
+                headers={'Authorization':f'Bearer {self.api_key}'},json=body)
             if not response.is_success:
                 raise AIUnavailableError('AI provider request failed')
             try:

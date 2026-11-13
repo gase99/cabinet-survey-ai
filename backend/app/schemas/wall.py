@@ -4,7 +4,7 @@ from datetime import datetime
 class WallCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
     length_mm: int = Field(ge=1, le=50000, description="Length in mm")
-    height_mm: int = Field(ge=1, le=10000, default=2700)
+    height_mm: int = Field(ge=1, le=10000, description="Explicitly measured height; never assumed")
     start_x_mm: int = 0
     start_y_mm: int = 0
     end_x_mm: int = 0

@@ -1,107 +1,94 @@
 # Engineering status — 2026-11-13
 
-## Verified checkpoint
-- Backend suite: `cd backend && /tmp/venv/bin/pytest -q` — **45 passed**.
-- Tests exercise auth, ownership, CRUD, measurements, deterministic geometry,
-  AI text candidates, approval reset, export downloads, sync conflicts and pairing.
-- Fixed SQLite pairing expiry comparisons (naive stored timestamps interpreted as UTC).
-- New pairing codes invalidate older unused codes; successful codes cannot be reused.
-- Worker and webhook routes now fail closed without configuration. Internal worker
-  authentication uses `X-Webhook-Secret`, not query parameters.
-- SVG requests validate room-to-project ownership; drawing creation returns HTTP 201.
-- Installed the repository-pinned bcrypt 4.0.1 in the test environment; bcrypt 5 is
-  incompatible with the current Passlib backend. Password security modernization
-  remains part of the production review.
+**Pre-release implementation, not a release candidate.** No production deployment,
+store publication or live provider/bot verification is claimed.
 
-## Changed areas
-Backend APIs, schemas, models, geometry, services and tests are working-tree changes
-on the Arena branch. This checkpoint additionally updates pairing, drawings,
-regression tests, runtime-data ignore rules, roadmap and agent execution guidance.
+## Verified evidence
 
-## Remaining release gates
-- Flutter remains scaffold-level. Flutter SDK is not on PATH. Android/Web builds,
-  responsive UI, Persian RTL, local SQLite and offline geometry are not verified.
-- PostgreSQL migration upgrade/downgrade and backup restoration are not verified.
-- Live multimodal AI, voice, scanner processing and OCR are not verified.
-- Drawing editor, undo/redo and full revision restoration are incomplete.
-- Physical print-scale, A3/A4 golden rendering and complete reports are not verified.
-- External Telegram worker, real update handling, retries, deployment and live file
-  delivery are not verified. Backend webhook currently only acknowledges updates;
-  it must not be described as a working bot.
-- Full security review remains open: password recovery, session rotation/revocation,
-  rate limiting, approval enforcement across all drawing/export paths, upload
-  hardening, provider secret storage, production configuration and log redaction.
-- Backend tests are SQLite/TestClient tests, not evidence of live provider or
-  production readiness. Deprecation warnings remain in framework/password code.
+| Gate | Evidence | Result |
+| --- | --- | --- |
+| Clean Python dependency install | Fresh `/tmp/cabinet-verify` venv; `pip install -r backend/requirements.txt`; `pip check` | No broken requirements |
+| Backend regression | `cd backend && /tmp/cabinet-verify/bin/pytest -q` | **79 passed**, 2 deprecation warnings |
+| Independent worker tests | `cd services/telegram-bot && PYTHONPATH=. /tmp/cabinet-verify/bin/pytest -q` | **4 passed**, isolated HTTP transports |
+| SQLite migrations | Initial upgrade, schema comparison, downgrade | Passed in backend tests |
+| PostgreSQL migrations | GitHub backend CI run 43435156620 | Upgrade/check/downgrade/re-upgrade passed |
+| Flutter analysis | GitHub client run 43435156646, commit c5cdc96 | Passed |
+| Flutter tests | Same run | Passed |
+| Chrome-platform tests | Same run: geometry, API transport and form lifecycle | Passed |
+| Production Web compilation | Same run | Passed |
+| Android APK / AAB | Same run | In progress at this checkpoint; not yet verified |
+| Docker/runtime deployment | Toolchain unavailable locally | Not executed |
+
+Run links: https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156646
+and https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156620 .
+
+## Implemented areas
+- FastAPI auth/profile, ownership-scoped customers/projects, rooms/walls/elements,
+  approvals, history, assets, drawings, export jobs, sync, Telegram and administration.
+- Sync validates parents and allowlists, locks versioned updates, persists idempotent
+  receipts and rejects stale writes. Failed savepoints do not poison a batch.
+- Engine requires explicit endpoints rather than guessing topology. Canonical SVG hash
+  fixtures cover rectangle/L/U/irregular rooms with windows, doors, columns and pipes.
+- Actual SVG vector PDF and raster PNG rendering replaced simulated export rectangles.
+  Tests verify A3/A4 media boxes, vector paths, 300-DPI PNG size and approval/error gates.
+- Bounded uploads validate MIME/signatures/decoded images, use private files/controlled
+  suffixes, reject SVG and do not reveal filesystem paths in asset metadata.
+- Online vision adapter validates source-linked JSON, source regions and exact values/
+  units, rejects approval/geometry fields and never auto-applies candidates. Unknown
+  providers and unavailable audio return errors, not successful mock results.
+- Admin provider credentials use Fernet with an external master key. Missing encryption
+  configuration fails closed. Enable flags, model selection and daily request quota
+  are enforced. No key/ciphertext is returned to clients.
+- Independent non-root Telegram worker persists webhook updates/deduplication, private
+  pairing, retry state, send receipts and callback retries. A post-send crash before
+  receipt persistence can duplicate delivery: at-least-once, not exactly-once.
+- Flutter Riverpod shell, Persian RTL/English, themes, auth/secure refresh restoration,
+  account-isolated SQLite, transactional outbox/revisions, project/customer/room/wall/
+  element capture, integer-mm validation, local vector plan/elevations, editing,
+  session undo/redo, camera/gallery photos, sketch candidate/source-region review,
+  approval controls, authenticated export download and Telegram controls.
+- Conflicts preserve snapshots and require explicit keep-server or keep-local rebase.
+  No local edit is silently converted to an approved measurement.
+- API/worker Dockerfiles, PostgreSQL/API/worker/nginx compose and deployment/backup docs.
+
+## Decisions and defects corrected in this milestone
+- Removed unsafe generic sync ORM assignment and missing nested parent authorization.
+- Removed topology heuristics, implicit wall-height/unit assumptions, fake masked-key
+  storage, successful empty transcription and falsely successful recovery-email status.
+- Restricted SVG room access and customer reassignment to authorized ownership.
+- Added explicit initial Alembic revision. Existing create_all databases must be backed
+  up and reviewed before conversion, not blindly stamped or discarded.
+- Flutter form controllers now belong to dialog lifecycle, including exit animations;
+  the regression test passes. FFI widget tests run without background isolates.
+- Generated test exports are ignored and isolated in temporary test directories.
+
+## Remaining acceptance blockers
+- Android builds/artifacts pending; browser/device interactive workflows not accepted.
+- Crop/rotate/perspective correction, OCR preprocessing, voice recording/transcription,
+  full sketch correction/import workflow and some diagnostic translations incomplete.
+- Full drawing drag/snapping editor, persistent undo stacks and server version restore
+  incomplete. Local previews are not certified fabrication drawings.
+- Sync is manual, with REST snapshot import; `/sync/pull` is only a receipt feed.
+  Deletion/tombstones, photo upload sync, background reconnect, full merge/retry UI and
+  device-local guest-to-account migration are incomplete.
+- SQLite/photos are not encrypted. Refresh revocation, distributed rate limits,
+  recovery email, comprehensive audit/privacy retention and security review remain open.
+- Multi-room drawing packages, Persian export font shaping, physical print calibration
+  and complete reports need work. Export currently selects the first project room.
+- Live vision, Telegram linking/delivery/failure tests, hosted TLS/webhook acceptance,
+  Docker deployment, backup recovery drill and performance testing are unverified.
+- Owner API host, provider credentials, bot token, production signing and deployment
+  authorization are required for connected release validation. CI mobile builds use
+  an intentionally invalid API host and default development signing, not owner signing.
 
 ## Progress accounting
-Release acceptance: **0 of 7 acceptance groups fully verified (0%)**. Groups are
-Application, Measurements/AI, Engineering drawings, Export, Offline, Telegram and
-Production. This strict metric tracks completed acceptance groups, not source-code
-volume; backend test progress is separately reported above. No APK, AAB or
-production Web artifact has been generated. No deployment is claimed.
+**0 of 7 complete acceptance groups (0%)**: Application, Measurements/AI, Engineering
+Drawings, Export, Offline, Telegram, Production. This conservative metric counts only
+fully verified acceptance groups, not source volume or test count. Substantial tested
+subsystems exist, but no group satisfies every production acceptance criterion yet.
 
-## Next execution order
-1. Audit remaining backend authorization/approval and session weaknesses.
-2. Establish tested migrations and production startup configuration.
-3. Implement Flutter workflows and local persistence; establish a usable build toolchain.
-4. Complete scanner/providers, editor, offline sync and external Telegram worker.
-5. Execute independent platform builds, golden fixtures, security and release gates.
-
-## Continued implementation checkpoint
-- Re-audited client: original runner was a single placeholder; no platform runners or tests.
-- Backend re-verification: original 45 tests passed. Current local suite: **58 passed**.
-- Added transactional sync receipts, field allowlists, parent ownership, explicit
-  approval-only operations, customer sync, bounded elements and safe operation retries.
-- Added initial explicit Alembic revision; SQLite upgrade/schema comparison/downgrade passes.
-  PostgreSQL migration and existing development database conversion remain unverified.
-- Replaced simulated PDF/PNG exports with actual engine SVG rendering. A3/A4 page
-  sizes, vector path presence, 300-DPI PNG sizing and approval/error gates are tested.
-- Implemented Flutter source for Riverpod bootstrap, fa/en shell, authentication,
-  account-isolated SQLite, durable outbox/revisions, projects/customers/rooms/walls/
-  elements, local vector plan/elevations, measurement editing, undo/redo, local camera/
-  gallery photo storage, explicit approval controls, export downloads and server-choice
-  conflict resolution. This is **uncompiled implementation**, not verified functionality.
-- Added Flutter geometry/API/SQLite/widget tests; not yet executed. Local environment
-  has no Flutter, Dart, Java or Android SDK. Added reproducible platform-generation
-  script and CI to analyze/test/build on a suitable runner; results pending.
-- Sketch preprocessing/provider review overlays, voice, full editor, photo upload sync,
-  local guest-to-account transfer, automatic token refresh, full localization of all
-  diagnostics, local encryption and independent platform acceptance remain incomplete.
-- Sync pull is explicitly only a receipt feed. Client imports REST snapshots after
-  pushing; deletion propagation and full incremental change cursors remain incomplete.
-- No release-candidate claim. The 0/7 fully verified acceptance-group metric remains.
-
-## Additional verification and implementation
-- Local backend suite now **71 passed**, including canonical rectangle/L/U/irregular
-  SVG hash fixtures with window, door, column, gas and water elements. Removed unsafe
-  length-only topology heuristics: explicit endpoints are now required, not guessed.
-- Independent Telegram worker implemented with secure webhook ingestion, persisted
-  update deduplication, private-chat pairing, shared-volume document delivery,
-  retry state and persisted send receipts. **4 worker tests passed** with HTTP test
-  transports. No live bot or external hosting test has been performed.
-- OpenAI-compatible vision adapter validates source-linked candidate JSON, rejects
-  approval/geometry fields and inconsistent values/units. Credentialed live access
-  is unverified. Unknown provider names no longer silently fall back. Audio uploads
-  now return an honest HTTP 503 instead of a successful empty transcript.
-- Added backend/worker Dockerfiles and deployment compose/nginx configuration;
-  Docker and PostgreSQL are unavailable locally, so deployment is unverified.
-- GitHub backend CI passed on the earlier 58-test checkpoint. Remote Flutter analysis
-  passed after removing Flutter's generated counter-app test. Flutter test execution
-  is still being investigated; no passing suite/build claim yet.
-- Photo review source now includes online candidate extraction, source-region overlay
-  and persistent local proposals, separate from manual measurement/approval. No
-  automated import is performed. Crop/rotation/perspective correction remain open.
-
-## Remote client gate evidence
-GitHub Actions run `43434800292` on commit `ea97a35` has passed Flutter analysis,
-all authored Flutter tests and `flutter build web --release`. Android APK/AAB gates
-were still running at this checkpoint. This supersedes earlier uncompiled/test-failure
-notes for that commit only. Interactive browser/device acceptance and live integrations
-are still outstanding. A later CI revision also adds explicit Chrome-platform tests.
-
-Local backend suite after upload hardening: **74 passed**, two dependency deprecation
-warnings. Uploads now use bounded reads, image signature/decoder and MIME validation,
-controlled suffixes and private files; internal storage paths are not returned by asset
-metadata. Password recovery returns HTTP 503 until real email delivery is configured.
-REST measurement edits cannot combine changed dimensions and approval in one request.
+## Next execution priorities
+1. Finish Android build gates and expose artifacts with precise signing/host limitations.
+2. Test complete Web/Android workflows, camera, secure storage and SQLite persistence.
+3. Complete offline lifecycle, scanner/editor and multilingual export limitations.
+4. Complete auth/security hardening, live integrations and recovery drill before RC.
