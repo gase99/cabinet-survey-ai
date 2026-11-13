@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../apps/client"
 # Reproducible platform generation; existing application Dart sources are preserved.
 flutter create --project-name cabinet_survey_ai --org com.cabinetsurvey --platforms=android,web .
+# flutter create may add its counter-app sample test; our app has its own tests.
+rm -f test/widget_test.dart
 flutter pub get
 dart run sqflite_common_ffi_web:setup
 python3 - <<'PY'
