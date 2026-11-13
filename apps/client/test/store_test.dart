@@ -4,7 +4,7 @@ import 'package:cabinet_survey_ai/core/store.dart';
 void main() {
   sqfliteFfiInit();
   test('atomic local revisions and durable ordered outbox are account scoped',() async {
-    final db=await LocalStore.open(testFactory:databaseFactoryFfi,path:inMemoryDatabasePath);
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
     final store=LocalStore(db,'one'), other=LocalStore(db,'two');
     await store.save('project',{'id':'p','title':'First','status':'draft'});
     await store.save('project',{'id':'p','title':'Second','status':'draft'});
@@ -19,7 +19,7 @@ void main() {
     await db.close();
   });
   test('explicit server resolution preserves local revision history',() async {
-    final db=await LocalStore.open(testFactory:databaseFactoryFfi,path:inMemoryDatabasePath);
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
     final store=LocalStore(db,'one');
     await store.cache('project',{'id':'p','title':'Server','version':1});
     await store.save('project',{'id':'p','title':'Local'});

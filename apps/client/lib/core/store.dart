@@ -26,7 +26,8 @@ class LocalStore {
   }
   Future<List<Json>> list(String kind) async => (await db.query('records',
     where: 'owner=? AND kind=?', whereArgs: [owner, kind]))
-      .map((r) => jsonDecode(r['body'] as String) as Json).toList();
+      .map((r) => jsonDecode(r['body'] as String) as Json).toList()
+      ..sort((a,b) => '${a['created_at'] ?? a['id']}'.compareTo('${b['created_at'] ?? b['id']}'));
   Future<Json?> get(String id) async {
     final rows = await db.query('records', where: 'owner=? AND id=?', whereArgs: [owner,id]);
     return rows.isEmpty ? null : jsonDecode(rows.single['body'] as String) as Json;
@@ -53,7 +54,7 @@ class LocalStore {
       }
       // All subsequent local edits depend on the preceding revision, even offline.
       final base = before?['version'] as int? ?? 0;
-      final next = {...value, 'version': base+1};
+      final next = {...value, 'created_at': before?['created_at'] ?? value['created_at'] ?? DateTime.now().toUtc().toIso8601String(), 'version': base+1};
       final operation = {'id': uuid.v4(), 'entity_type': kind, 'entity_id': value['id'],
         'operation': before == null ? 'create' : 'update', 'payload': payload,
         'base_version': base};

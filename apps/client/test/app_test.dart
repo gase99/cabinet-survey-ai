@@ -8,7 +8,7 @@ import 'package:cabinet_survey_ai/core/store.dart';
 void main() {
   testWidgets('Persian RTL shell switches to English and captures offline', (tester) async {
     sqfliteFfiInit();
-    final db=await LocalStore.open(testFactory:databaseFactoryFfi,path:inMemoryDatabasePath);
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
     await tester.pumpWidget(ProviderScope(overrides:[databaseProvider.overrideWith((ref) async => db)],
       child:const CabinetSurveyApp()));
     await tester.pumpAndSettle();

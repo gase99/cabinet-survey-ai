@@ -1,7 +1,11 @@
 """Run a CI gate and expose diagnostics as annotations (also accessible via Checks API)."""
 import subprocess
 import sys
-result = subprocess.run(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+try:
+    result = subprocess.run(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+except subprocess.TimeoutExpired as error:
+    output = error.stdout.decode() if isinstance(error.stdout, bytes) else error.stdout or ''
+    result = subprocess.CompletedProcess(sys.argv[1:], 124, output + '\nCI gate exceeded ten-minute timeout')
 print(result.stdout)
 if result.returncode:
     detail = result.stdout[-14000:].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
