@@ -67,6 +67,8 @@ def update_wall(wall_id: str, payload: WallUpdate, db: Session = Depends(get_db)
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     data = payload.model_dump(exclude_unset=True)
+    if data.get("review_status") == "approved" and set(data) != {"review_status"}:
+        raise HTTPException(status_code=422, detail="Approval must be a separate explicit operation")
     # If approved value edited, reset to needs_review unless explicitly approved
     editing_approved = wall.review_status == "approved" and any(k in data for k in ["length_mm","height_mm","start_x_mm","start_y_mm","end_x_mm","end_y_mm"])
     for k, v in data.items():

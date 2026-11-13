@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.ai.provider import get_ai_provider, AIUnavailableError, parse_text_measurements_deterministic
 from datetime import datetime, timezone
 import time
+from app.services.uploads import validated_upload
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -37,14 +38,7 @@ async def sketch_analysis(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # Validate file
-    if file.content_type not in ["image/jpeg", "image/png", "image/webp", "image/jpg"]:
-        raise HTTPException(status_code=400, detail="Unsupported image type. Use JPEG, PNG, or WebP.")
-    data = await file.read()
-    if len(data) > settings.upload_max_bytes:
-        raise HTTPException(status_code=400, detail="File too large")
-    if len(data) == 0:
-        raise HTTPException(status_code=400, detail="Empty file")
+    data, _ = await validated_upload(file, images_only=True)
 
     try:
         provider = get_ai_provider(settings.ai_provider)

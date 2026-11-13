@@ -17,4 +17,8 @@ if result.returncode:
     for offset in range(0, len(detail), 3000):
         chunk = detail[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
         print(f'::error::{chunk}')
+else:
+    summary = '\n'.join(result.stdout.splitlines()[-4:])
+    escaped = summary.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+    print(f'::notice::CI gate passed: {" ".join(sys.argv[1:])}%0A{escaped}')
 sys.exit(result.returncode)

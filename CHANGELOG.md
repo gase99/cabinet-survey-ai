@@ -17,3 +17,6 @@
 - Remove heuristic topology invention; add canonical SVG golden fixtures for four room shapes.
 - Add source-region sketch review and Telegram controls to Flutter source; remote validation pending.
 - Add production startup safeguards, container configuration and PostgreSQL migration CI.
+- Remote Flutter analysis, authored tests and production Web compilation passed at ea97a35; Android gates still pending.
+- Harden bounded uploads, file signatures and MIME matching; local backend suite now 74 passing tests.
+- Make password recovery honestly unavailable until an email service is configured.

@@ -49,3 +49,4 @@ def auth_headers(client):
 @pytest.fixture(autouse=True)
 def isolated_export_storage(tmp_path, monkeypatch):
     monkeypatch.setenv("EXPORT_STORAGE_DIR", str(tmp_path / "exports"))
+    monkeypatch.setenv("ASSET_STORAGE_DIR", str(tmp_path / "assets"))

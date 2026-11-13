@@ -92,3 +92,16 @@ production Web artifact has been generated. No deployment is claimed.
 - Photo review source now includes online candidate extraction, source-region overlay
   and persistent local proposals, separate from manual measurement/approval. No
   automated import is performed. Crop/rotation/perspective correction remain open.
+
+## Remote client gate evidence
+GitHub Actions run `43434800292` on commit `ea97a35` has passed Flutter analysis,
+all authored Flutter tests and `flutter build web --release`. Android APK/AAB gates
+were still running at this checkpoint. This supersedes earlier uncompiled/test-failure
+notes for that commit only. Interactive browser/device acceptance and live integrations
+are still outstanding. A later CI revision also adds explicit Chrome-platform tests.
+
+Local backend suite after upload hardening: **74 passed**, two dependency deprecation
+warnings. Uploads now use bounded reads, image signature/decoder and MIME validation,
+controlled suffixes and private files; internal storage paths are not returned by asset
+metadata. Password recovery returns HTTP 503 until real email delivery is configured.
+REST measurement edits cannot combine changed dimensions and approval in one request.

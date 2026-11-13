@@ -25,6 +25,9 @@ jobs:
         working-directory: apps/client
       - run: python ../../scripts/ci-command.py flutter test --reporter expanded --timeout 30s
         working-directory: apps/client
+      - name: Browser geometry, networking and form tests
+        run: python ../../scripts/ci-command.py flutter test --platform chrome test/survey_test.dart test/api_test.dart test/form_test.dart --timeout 30s
+        working-directory: apps/client
       - run: python ../../scripts/ci-command.py flutter build web --release
         working-directory: apps/client
       - run: python ../../scripts/ci-command.py flutter build apk --debug --dart-define=API_BASE_URL=https://configure-api-host.invalid/api/v1/

@@ -93,4 +93,4 @@ def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db
 @router.post("/password-recovery")
 def password_recovery(email: str, db: Session = Depends(get_db)):
     # Do not reveal if email exists
-    return {"status": "if_account_exists_email_sent"}
+    raise HTTPException(status_code=503, detail="Password recovery email delivery is not configured")

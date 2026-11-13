@@ -80,6 +80,17 @@ def update_element(element_id: str, payload: ElementUpdate, db: Session = Depend
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     data = payload.model_dump(exclude_unset=True)
+    if data.get("review_status") == "approved" and set(data) != {"review_status"}:
+        raise HTTPException(status_code=422, detail="Approval must be a separate explicit operation")
+    # Validate complete resulting data and all overlap/bounds constraints on edits.
+    from app.api.v1.sync import check_element
+    merged = {c.name: getattr(elem,c.name) for c in elem.__table__.columns}
+    merged.update(data)
+    try:
+        ElementCreate.model_validate(merged)
+        check_element(merged,wall,db,exclude=elem.id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid element dimensions or overlapping placement")
     # If changing offset/width, revalidate
     new_offset = data.get("offset_mm", elem.offset_mm)
     new_width = data.get("width_mm", elem.width_mm)

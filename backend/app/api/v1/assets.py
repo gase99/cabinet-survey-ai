@@ -6,6 +6,8 @@ from app.models.db_models import User, Asset, Project
 from app.core.config import settings
 import os, tempfile, uuid
 from fastapi.responses import FileResponse
+from pathlib import Path
+from app.services.uploads import validated_upload
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -20,20 +22,18 @@ async def upload_asset(
         proj = db.get(Project, project_id)
         if not proj or proj.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Project not found")
-    if file.content_type not in settings.upload_allowed_types.split(",") and "image/" not in file.content_type:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-    data = await file.read()
-    if len(data) > settings.upload_max_bytes:
-        raise HTTPException(status_code=400, detail="File too large")
-    # Store to temp dir (production would use S3/volume)
-    storage_dir = os.getenv("ASSET_STORAGE_DIR", tempfile.gettempdir())
-    os.makedirs(storage_dir, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1] or ".bin"
+    data, ext = await validated_upload(file)
+    storage_dir = Path(os.getenv("ASSET_STORAGE_DIR", "./var/data/assets"))
+    storage_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     fname = f"{uuid.uuid4().hex}{ext}"
-    fpath = os.path.join(storage_dir, fname)
-    with open(fpath, "wb") as f:
-        f.write(data)
-    asset = Asset(owner_id=user.id, project_id=project_id, filename=file.filename or fname, content_type=file.content_type or "application/octet-stream", size_bytes=len(data), storage_path=fpath)
+    fpath = str(storage_dir / fname)
+    filename = Path(file.filename or fname).name
+    if len(filename)>200 or any(ord(c)<32 for c in filename):
+        raise HTTPException(422,"Invalid filename")
+    fd = os.open(fpath, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(data)
+    asset = Asset(owner_id=user.id, project_id=project_id, filename=filename, content_type=file.content_type or "application/octet-stream", size_bytes=len(data), storage_path=fpath)
     db.add(asset)
     db.commit()
     db.refresh(asset)
@@ -52,7 +52,7 @@ def get_asset(asset_id: str, db: Session = Depends(get_db), user: User = Depends
     a = db.get(Asset, asset_id)
     if not a or a.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Asset not found")
-    return {"id": a.id, "filename": a.filename, "content_type": a.content_type, "size_bytes": a.size_bytes, "project_id": a.project_id, "storage_path": a.storage_path, "created_at": a.created_at}
+    return {"id": a.id, "filename": a.filename, "content_type": a.content_type, "size_bytes": a.size_bytes, "project_id": a.project_id, "created_at": a.created_at}
 
 @router.get("/{asset_id}/download")
 def download_asset(asset_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
