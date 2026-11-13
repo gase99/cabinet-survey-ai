@@ -31,3 +31,5 @@ var/data/
 # Generated platform runners and browser SQLite runtime (bootstrap-client.sh)
 apps/client/android/
 apps/client/web/
+
+**/var/data/

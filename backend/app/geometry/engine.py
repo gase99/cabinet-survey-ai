@@ -102,10 +102,7 @@ def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 5) -> Tuple[Lis
     Compute room polygon from walls.
     Supports two modes:
     - Walls have explicit start/end coordinates -> validate closure
-    - Walls have only length_mm and are assumed to be orthogonal sequential (rect, L, U)
-      We auto-layout them in a polyline based on turning directions if provided via label hints
-      Simpler: if no coordinates, we lay out as axis-aligned walk: East, North, West, South etc.
-      For irregular rooms, caller must provide coordinates.
+    - Missing endpoints are an error, not permission to infer room topology.
     """
     errors: List[GeometryValidationError] = []
     # Check if any wall has coordinates
@@ -148,69 +145,11 @@ def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 5) -> Tuple[Lis
         points = [w.start for w in walls]  # type: ignore
         return points, errors
     else:
-        # Auto-layout: orthogonal walk
-        # We assume walls are given in clockwise order starting at origin (0,0) heading East
-        # Direction cycles: E, N, W, S, E, N... but to support L/U, we need smarter.
-        # Simpler heuristic: infer direction from wall label or use alternating pattern that closes.
-        # For generic L/U, we need explicit direction. We'll use a simple algorithm:
-        # Place first wall East from (0,0) to (L,0)
-        # For each subsequent wall, turn left (N) if we can, but we try to close polygon.
-        # Actually for rectangle and L/U with orthogonal edges, we can reconstruct if we know
-        # wall connections: each wall end = next wall start.
-        # We'll implement a walk that tracks bounding box and tries to close.
-        # For now, implement 4-direction cycle East->North->West->South for rectangle,
-        # and for L/U we require caller to provide wall_directions.
-        # We'll support optional wall attribute via label hints: e.g., label contains "N", "E" etc. is ignored.
-        # Instead, we will use a deterministic simple walk: East, North, West, North, West, South ... not general.
-        # Better: assume walls are axis-aligned and sequential with 90-degree turns; we will compute closure by solving.
-        # Simplified: Place walls sequentially East, North, West, South, East, North... and check if it closes.
-        # For L-shape (6 walls) this works if directions are E,N,W,S,W,S? Actually L needs 6 walls.
-        # Alternative approach: require that sum of East lengths == sum of West lengths and sum of North == sum of South for closure.
-        # We will implement a generic orthogonal polygon builder that takes explicit direction per wall if provided via extra field.
-        # For this implementation, we support passing directions via wall.id convention or fallback to auto.
-        # To keep deterministic and testable, we implement explicit direction mapping if available, else use rectangular assumption.
-        # For tests, we will provide walls in order with directions inferred from sequential wall count.
-        # Let's implement a helper that given wall count, picks directions to form a plausible orthogonal shape:
-        # This is a placeholder for real CAD: in production, wall placement is explicit coordinates or wall connections with angles.
-        # For now, if walls==4: directions = [E,N,W,S]
-        # if walls==6: directions = [E,N,W,N,W,S] for typical L (can be rotated)
-        # if walls==8: U-shape directions = [E,N,W,S,W,N,W,S] etc.
-        # Users who need irregular must provide coordinates.
-        n = len(walls)
-        directions = []
-        if n == 4:
-            directions = [(1,0),(0,1),(-1,0),(0,-1)]
-        elif n == 6:
-            # L-shape: E, N, W, N, W, S (makes an L)
-            # Example: start (0,0) -> E 4000 -> N 3000 -> W 1500 -> N 2000 -> W 2500 -> S 5000 closes
-            # This is one common L; other orientations also valid but we choose this.
-            directions = [(1,0),(0,1),(-1,0),(0,1),(-1,0),(0,-1)]
-        elif n == 8:
-            directions = [(1,0),(0,1),(-1,0),(0,-1),(-1,0),(0,1),(-1,0),(0,-1)]  # simplified U
-        else:
-            # Generic: alternate but ensure closure: E,N,W,N,W... then S to close
-            # We'll just cycle E,N,W,S repeatedly
-            cyc = [(1,0),(0,1),(-1,0),(0,-1)]
-            directions = [cyc[i % 4] for i in range(n)]
-
-        points: List[PointMM] = [PointMM(0,0)]
-        cur = PointMM(0,0)
-        for w, d in zip(walls, directions):
-            nxt = PointMM(cur.x + d[0]*w.length_mm, cur.y + d[1]*w.length_mm)
-            cur = nxt
-            points.append(cur)
-        # points has n+1 entries, last should equal first for closed
-        if points[-1].distance_to(points[0]) > tolerance_mm:
-            errors.append(GeometryValidationError(
-                code="not_closed",
-                message=f"Auto-layout walls do not form closed polygon (gap {points[-1].distance_to(points[0]):.1f} mm). Provide explicit wall coordinates for irregular rooms.",
-                entity_ids=[w.id for w in walls]
-            ))
-            # Keep points as is for visualization, but mark error
-        else:
-            # Remove duplicate last point
-            points = points[:-1]
-        return points, errors
+        # Lengths alone do not determine corner angles or topology. Never choose a
+        # plausible rectangle/L/U on behalf of the surveyor.
+        return [], [GeometryValidationError(code="missing_coordinates",
+            message="Explicit wall endpoints are required; lengths alone do not define room topology",
+            entity_ids=[w.id for w in walls])]
 
 def validate_elements(elements: List[ElementInput], walls: List[WallInput]) -> List[GeometryValidationError]:
     errors: List[GeometryValidationError] = []

@@ -46,8 +46,8 @@ async def sketch_analysis(
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    provider = get_ai_provider(settings.ai_provider)
     try:
+        provider = get_ai_provider(settings.ai_provider)
         result = await provider.analyze_sketch(data, language_hint=language_hint)
         db.add(AIUsageLog(user_id=user.id, provider=settings.ai_provider, success=True))
         db.commit()
@@ -77,8 +77,7 @@ async def transcription(
         data = await file.read()
         if len(data) > 10*1024*1024:
             raise HTTPException(status_code=400, detail="Audio file too large")
-        # Mock transcription
-        return {"transcript": "", "note": "Voice transcription requires configured AI provider with audio support.", "language_hint": language_hint}
+        raise HTTPException(status_code=503, detail="Audio transcription provider is not configured")
     if text:
         result = parse_text_measurements_deterministic(text)
         return {"transcript": text, "extraction": result}

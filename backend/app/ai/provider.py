@@ -15,7 +15,7 @@ class TextProvider(Protocol):
 class AIUnavailableError(RuntimeError):
     pass
 
-# ---------- Mock / deterministic local parser for offline / test ----------
+# ---------- Deterministic explicit-text parser ----------
 
 # Regex for measurements like "Wall A: 3200 mm" or Persian "دیوار A: ۳۲۰۰ میلی‌متر"
 # Handles: number + unit, with optional label
@@ -42,7 +42,11 @@ def parse_text_measurements_deterministic(text: str) -> dict[str, Any]:
     for m in MEASUREMENT_RE.finditer(normalized):
         label = m.group("label").strip()
         value_raw = m.group("value").strip().replace(",", "")
-        unit_raw = (m.group("unit") or "mm").strip().lower()
+        if not m.group("unit"):
+            ambiguities.append({"type": "missing_unit", "raw": m.group(0),
+                "detail": "Measurement unit is missing; please specify it explicitly."})
+            continue
+        unit_raw = m.group("unit").strip().lower()
         # normalize Persian unit
         unit_norm = UNIT_NORMALIZE.get(unit_raw, unit_raw)
         if unit_norm not in ("mm", "cm", "m", "in", "inch", "ft", "foot", "millimeter", "millimetre", "centimeter", "centimetre", "meter", "metre"):
@@ -158,6 +162,7 @@ def get_ai_provider(name: str):
         return DisabledProvider()
     if name in ("local", "deterministic", "mock"):
         return DeterministicLocalProvider()
-    # For any other name, try to return a provider that will attempt real API if configured
-    # Here we fallback to deterministic with note
-    return DeterministicLocalProvider()
+    if name == "openai_compatible":
+        from app.ai.online import OpenAICompatibleProvider
+        return OpenAICompatibleProvider()
+    raise AIUnavailableError("Unknown AI provider")

@@ -44,3 +44,8 @@ def auth_headers(client):
     resp = client.post("/api/v1/auth/login", json={"email": email, "password": password})
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def isolated_export_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXPORT_STORAGE_DIR", str(tmp_path / "exports"))

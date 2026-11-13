@@ -112,7 +112,7 @@ def sync_push(payload: SyncPushRequest, db: Session = Depends(get_db), user: Use
                     if op.base_version is None:
                         raise ValueError("base_version is required for updates")
                     # Lock the row before checking its version (PostgreSQL).
-                    entity = db.query(model).filter(model.id == op.entity_id).with_for_update().one()
+                    entity = db.query(model).filter(model.id == op.entity_id).with_for_update().populate_existing().one()
                     if op.base_version != entity.version:
                         db.add(SyncOperation(id=op.id, owner_id=user.id, entity_type=op.entity_type, entity_id=op.entity_id,
                             operation=op.operation, payload=op.payload, base_version=op.base_version, status='conflict'))

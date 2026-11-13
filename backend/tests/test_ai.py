@@ -39,3 +39,9 @@ def test_deterministic_never_ai_creates_coords():
     result = parse_text_measurements_sync("Wall A: 3200 mm")
     assert "svg" not in str(result).lower()
     assert "coordinates" not in str(result).lower()
+
+
+def test_missing_unit_is_not_invented():
+    result=parse_text_measurements_deterministic('Wall A: 3200')
+    assert result['observations']==[]
+    assert any(a['type']=='missing_unit' for a in result['ambiguities'])

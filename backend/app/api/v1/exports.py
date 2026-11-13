@@ -29,7 +29,7 @@ def create_export(project_id: str, payload: ExportRequest, db: Session = Depends
     room = db.query(Room).filter(Room.project_id == project_id).first()
     if not room:
         raise HTTPException(status_code=400, detail="Project has no rooms to export")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
     elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
     geom = walls_and_elements_from_room(room, walls, elements)
 

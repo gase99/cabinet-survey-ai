@@ -105,52 +105,8 @@ def send_via_telegram(payload: dict, db: Session = Depends(get_db), user: User =
     db.commit()
     db.refresh(delivery)
 
-    # If bot token configured, attempt direct delivery via Telegram Bot API
-    if settings.telegram_bot_token:
-        try:
-            import httpx
-            # Check file exists
-            import os
-            if job.file_path and os.path.exists(job.file_path):
-                # Send document
-                url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendDocument"
-                caption = payload.get("caption") or f"{job.project_id} — {job.format.upper()} {job.layout}"
-                with open(job.file_path, "rb") as f:
-                    # httpx multipart
-                    files = {"document": (os.path.basename(job.file_path), f, "application/pdf" if job.format=="pdf" else "image/png")}
-                    data = {"chat_id": user.telegram_chat_id, "caption": caption}
-                    # Use sync httpx for simplicity (could be async)
-                    with httpx.Client(timeout=30) as client:
-                        resp = client.post(url, data=data, files=files)
-                        if resp.status_code == 200 and resp.json().get("ok"):
-                            delivery.status = "sent"
-                            delivery.message_id = str(resp.json()["result"]["message_id"])
-                            db.commit()
-                            log_audit(db, user_id=user.id, project_id=job.project_id, action="telegram.deliver_sent", entity_type="delivery", entity_id=delivery.id)
-                            return {"status": "sent", "delivery_id": delivery.id, "message_id": delivery.message_id}
-                        else:
-                            delivery.status = "failed"
-                            delivery.error = resp.text[:500]
-                            db.commit()
-                            return {"status": "failed", "delivery_id": delivery.id, "error": resp.text[:500]}
-            else:
-                delivery.status = "failed"
-                delivery.error = "Export file not found on server"
-                db.commit()
-                raise HTTPException(status_code=500, detail="Export file missing")
-        except HTTPException:
-            raise
-        except Exception as e:
-            delivery.status = "failed"
-            delivery.error = str(e)[:500]
-            db.commit()
-            log_audit(db, user_id=user.id, project_id=job.project_id, action="telegram.deliver_failed", entity_type="delivery", entity_id=delivery.id, detail=str(e))
-            return {"status": "failed", "delivery_id": delivery.id, "error": str(e)}
-    else:
-        # No token configured — keep pending, return info for worker
-        # Delivery will be picked up by external worker polling / deliveries/pending
-        log_audit(db, user_id=user.id, project_id=job.project_id, action="telegram.deliver_queued", entity_type="delivery", entity_id=delivery.id)
-        return {"status": "queued", "delivery_id": delivery.id, "note": "Telegram bot token not configured; delivery queued for worker"}
+    log_audit(db, user_id=user.id, project_id=job.project_id, action="telegram.deliver_queued", entity_type="delivery", entity_id=delivery.id)
+    return {"status": "queued", "delivery_id": delivery.id}
 
 @router.get("/deliveries")
 def list_deliveries(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -165,14 +121,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db), x_te
     Secured via Telegram webhook secret header.
     """
     require_worker_secret(x_telegram_bot_api_secret_token)
-    try:
-        body = await request.json()
-    except:
-        body = {}
-    # Minimal handling: if message contains /pair code, link account
-    # Log for audit, return 200
-    # Actual linking should go via /verify-pairing from worker
-    return {"ok": True, "received": True}
+    raise HTTPException(status_code=501, detail="Configure Telegram webhook on the independent worker service")
 
 # Internal worker polling endpoint: pending deliveries
 @router.get("/internal/pending-deliveries")

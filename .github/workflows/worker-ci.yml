@@ -1,0 +1,17 @@
+name: worker-ci
+on:
+  push:
+    paths: ['services/telegram-bot/**', '.github/workflows/worker-ci.yml']
+  pull_request:
+    paths: ['services/telegram-bot/**', '.github/workflows/worker-ci.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+        working-directory: services/telegram-bot
+      - run: PYTHONPATH=. pytest -q
+        working-directory: services/telegram-bot

@@ -71,3 +71,24 @@ production Web artifact has been generated. No deployment is claimed.
 - Sync pull is explicitly only a receipt feed. Client imports REST snapshots after
   pushing; deletion propagation and full incremental change cursors remain incomplete.
 - No release-candidate claim. The 0/7 fully verified acceptance-group metric remains.
+
+## Additional verification and implementation
+- Local backend suite now **71 passed**, including canonical rectangle/L/U/irregular
+  SVG hash fixtures with window, door, column, gas and water elements. Removed unsafe
+  length-only topology heuristics: explicit endpoints are now required, not guessed.
+- Independent Telegram worker implemented with secure webhook ingestion, persisted
+  update deduplication, private-chat pairing, shared-volume document delivery,
+  retry state and persisted send receipts. **4 worker tests passed** with HTTP test
+  transports. No live bot or external hosting test has been performed.
+- OpenAI-compatible vision adapter validates source-linked candidate JSON, rejects
+  approval/geometry fields and inconsistent values/units. Credentialed live access
+  is unverified. Unknown provider names no longer silently fall back. Audio uploads
+  now return an honest HTTP 503 instead of a successful empty transcript.
+- Added backend/worker Dockerfiles and deployment compose/nginx configuration;
+  Docker and PostgreSQL are unavailable locally, so deployment is unverified.
+- GitHub backend CI passed on the earlier 58-test checkpoint. Remote Flutter analysis
+  passed after removing Flutter's generated counter-app test. Flutter test execution
+  is still being investigated; no passing suite/build claim yet.
+- Photo review source now includes online candidate extraction, source-region overlay
+  and persistent local proposals, separate from manual measurement/approval. No
+  automated import is performed. Crop/rotation/perspective correction remain open.

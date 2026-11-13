@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -31,6 +32,17 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8080"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_file_encoding="utf-8")
+
+    @model_validator(mode="after")
+    def production_secrets(self):
+        if self.app_env == "production":
+            if len(self.jwt_secret) < 32 or "replace-with" in self.jwt_secret or "change-me" in self.jwt_secret:
+                raise ValueError("Production JWT_SECRET must be an explicit high-entropy secret of at least 32 characters")
+            if not self.database_url.startswith("postgresql"):
+                raise ValueError("Production requires PostgreSQL")
+            if "*" in self.cors_origin_list:
+                raise ValueError("Production CORS must use explicit origins")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

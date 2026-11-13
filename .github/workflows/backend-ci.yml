@@ -15,3 +15,26 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: pytest -q
         working-directory: backend
+  postgres-migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cabinet_test
+          POSTGRES_USER: fixture
+          POSTGRES_PASSWORD: ci-only-fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fixture -d cabinet_test"
+          --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://fixture:ci-only-fixture@localhost:5432/cabinet_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+        working-directory: backend
+      - run: alembic upgrade head && alembic check && alembic downgrade base && alembic upgrade head
+        working-directory: backend

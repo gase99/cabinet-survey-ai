@@ -27,7 +27,7 @@ def get_plan(project_id: str, room_id: str | None = None, db: Session = Depends(
         room = db.query(Room).filter(Room.project_id == project_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="No rooms in project")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
     wall_ids = [w.id for w in walls]
     elements = db.query(Element).filter(Element.wall_id.in_(wall_ids)).all() if wall_ids else []
     result = walls_and_elements_from_room(room, walls, elements)
@@ -55,7 +55,7 @@ def get_elevations(project_id: str, room_id: str | None = None, db: Session = De
         room = db.query(Room).filter(Room.project_id == project_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="No rooms in project")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
     elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     return {"project_id": project_id, "room_id": room.id, "elevations": result.elevations}
@@ -66,7 +66,7 @@ def get_plan_svg(project_id: str, room_id: str | None = None, db: Session = Depe
     room = db.get(Room, room_id) if room_id else db.query(Room).filter(Room.project_id == project_id).first()
     if not room or room.project_id != project_id:
         raise HTTPException(status_code=404, detail="Room not found")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
     elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     return PlainTextResponse(result.svg_plan, media_type="image/svg+xml")
@@ -77,7 +77,7 @@ def create_drawing_version(project_id: str, db: Session = Depends(get_db), user:
     room = db.query(Room).filter(Room.project_id == project_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="No rooms")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
     elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     if result.errors:
