@@ -32,3 +32,13 @@ def test_password_change_revokes_all_devices(client):
     for token in [first,second]:
         assert client.get('/api/v1/auth/me',headers=headers(token)).status_code==401
         assert client.post('/api/v1/auth/refresh',json={'refresh_token':token['refresh_token']}).status_code==401
+
+
+def test_shared_database_auth_throttle_ignores_spoofed_forwarded_headers(client,monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings,'rate_limit_auth_per_minute',2)
+    for index in range(3):
+        response=client.post('/api/v1/auth/login',headers={'X-Forwarded-For':f'203.0.113.{index}'},
+            json={'email':'nonexistent@example.com','password':'FixtureInvalid'})
+        assert response.status_code==(401 if index<2 else 429)
+    assert int(response.headers['retry-after'])>0

@@ -77,15 +77,16 @@ class SurveyPainter extends CustomPainter {
       final width = e['width_mm'] as int;
       final paint = Paint()..color = e['review_status'] == 'approved' ? Colors.teal : Colors.orange..strokeWidth = 6;
       if (wall != null) {
-        final sill = e['sill_mm'] as int? ?? 0;
+        final sill = e['sill_mm'] as int?;
         final height = e['height_mm'] as int?;
-        if (height != null) {
+        if (height != null && sill != null) {
           paint.style = PaintingStyle.stroke;
           canvas.drawRect(Rect.fromPoints(point(offset,sill),point(offset+width,sill+height)),paint);
+          label('${e['label']} $offset / $width mm',point(offset,sill)+const Offset(2,-18));
         } else {
-          canvas.drawCircle(point(offset,sill),5,paint); // Unknown height is not fabricated.
+          final index=elements.indexOf(e);
+          label('${e['label']}: height ${height ?? '?'} mm, sill ${sill ?? '?'} mm (unpositioned)',Offset(50,size.height-15-index*14));
         }
-        label('${e['label']} $offset / $width mm',point(offset,sill)+const Offset(2,-18));
       } else {
         Offset onWall(int distance) => point(matching.x1+(matching.x2-matching.x1)*distance/matching.length,
           matching.y1+(matching.y2-matching.y1)*distance/matching.length);

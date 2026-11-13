@@ -236,3 +236,9 @@ class AuthSession(Base):
     refresh_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+class AuthThrottle(Base):
+    __tablename__ = "auth_throttles"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bucket: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)

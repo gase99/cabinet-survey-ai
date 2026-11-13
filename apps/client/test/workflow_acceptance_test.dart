@@ -8,11 +8,14 @@ import 'package:cabinet_survey_ai/core/store.dart';
 import 'package:cabinet_survey_ai/domain/survey.dart';
 
 const url=String.fromEnvironment('ACCEPTANCE_API_URL');
+class _RealNetwork extends HttpOverrides {}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   for(final language in ['en','fa']) {
     test('real HTTP offline/reopen/conflict/drawings/export workflow $language',() async {
+      await HttpOverrides.runWithHttpOverrides(() async {
       FlutterSecureStorage.setMockInitialValues({}); // OS keystore substitute, not an Android device claim.
       final dir=await Directory.systemTemp.createTemp('cabinet-acceptance-');
       var db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:'${dir.path}/survey.sqlite');
@@ -75,6 +78,7 @@ void main() {
       }
       await reopened.logout();
       other.close();reopened.api.close();reopened.dispose();await db.close();await dir.delete(recursive:true);
+      },_RealNetwork());
     },skip:url.isEmpty?'Requires disposable live FastAPI acceptance server':false,timeout:const Timeout(Duration(minutes:3)));
   }
 }

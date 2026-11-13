@@ -7,13 +7,14 @@ from app.services.sessions import active_session, issue, digest
 from fastapi.security import HTTPAuthorizationCredentials
 from app.core.deps import security
 import secrets
+from app.core.throttle import auth_rate_limit
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, UserOut, UpdateProfileRequest, ChangePasswordRequest
 from app.core.deps import get_current_user
 from app.services.audit import log_audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-@router.post("/register", response_model=UserOut, status_code=201)
+@router.post("/register", dependencies=[Depends(auth_rate_limit)], response_model=UserOut, status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     err = validate_password_strength(payload.password)
     if err:
@@ -33,7 +34,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     log_audit(db, user_id=user.id, project_id=None, action="user.register", entity_type="user", entity_id=user.id)
     return user
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", dependencies=[Depends(auth_rate_limit)], response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email.lower()).first()
     if not user or not verify_password(payload.password, user.hashed_password):
@@ -44,7 +45,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     log_audit(db, user_id=user.id, project_id=None, action="user.login", entity_type="user", entity_id=user.id)
     return tokens
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", dependencies=[Depends(auth_rate_limit)], response_model=TokenResponse)
 def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     data = decode_token(payload.refresh_token)
     if not data or data.get("type") != "refresh":
@@ -101,7 +102,7 @@ def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db
     return {"status": "password_changed"}
 
 # Password recovery placeholder (requires email service)
-@router.post("/password-recovery")
+@router.post("/password-recovery", dependencies=[Depends(auth_rate_limit)])
 def password_recovery(email: str, db: Session = Depends(get_db)):
     # Do not reveal if email exists
     raise HTTPException(status_code=503, detail="Password recovery email delivery is not configured")
