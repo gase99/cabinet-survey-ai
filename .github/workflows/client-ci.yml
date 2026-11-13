@@ -1,0 +1,40 @@
+name: client-ci
+on:
+  push:
+    paths: ['apps/client/**', 'scripts/bootstrap-client.sh', '.github/workflows/client-ci.yml']
+  pull_request:
+    paths: ['apps/client/**', 'scripts/bootstrap-client.sh', '.github/workflows/client-ci.yml']
+  workflow_dispatch:
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate platform runners and SQLite browser assets
+        run: bash scripts/bootstrap-client.sh
+      - run: flutter analyze --no-fatal-infos
+        working-directory: apps/client
+      - run: flutter test --reporter expanded
+        working-directory: apps/client
+      - run: flutter build web --release
+        working-directory: apps/client
+      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://configure-api-host.invalid/api/v1/
+        working-directory: apps/client
+      - run: flutter build appbundle --release --dart-define=API_BASE_URL=https://configure-api-host.invalid/api/v1/
+        working-directory: apps/client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-unsigned-candidate
+          path: |
+            apps/client/build/web
+            apps/client/build/app/outputs/flutter-apk/app-debug.apk
+            apps/client/build/app/outputs/bundle/release/app-release.aab
