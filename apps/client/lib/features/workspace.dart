@@ -8,6 +8,7 @@ import '../core/l10n.dart';
 import '../domain/survey.dart';
 import 'drawing.dart';
 import 'sketch_review.dart';
+import 'measurement_form.dart';
 
 class Workspace extends StatefulWidget {
   final SurveyController controller;
@@ -50,42 +51,10 @@ class _WorkspaceState extends State<Workspace> {
   }
   Future<Json?> form(String title, Map<String,String> fields, {Json? initial, Set<String> numeric = const {},
       Set<String> optional = const {}, Set<String> signed = const {}, Set<String> zero = const {}}) async {
-    final key=GlobalKey<FormState>();
-    final controllers = {for(final entry in fields.entries) entry.key: TextEditingController(text:'${initial?[entry.key] ?? ''}')};
-    try {
-      return await showDialog<Json>(context:context, builder:(dialog) => AlertDialog(
-        title:Text(tr(context,title)), content:SizedBox(width:480,child:Form(key:key,child:SingleChildScrollView(
-          child:Column(mainAxisSize:MainAxisSize.min,children:[for(final entry in fields.entries)
-            Padding(padding:const EdgeInsets.only(bottom:12),child:TextFormField(
-              controller:controllers[entry.key], obscureText:entry.key=='password', decoration:InputDecoration(labelText:tr(context,entry.value),border:const OutlineInputBorder()),
-              keyboardType:numeric.contains(entry.key) ? const TextInputType.numberWithOptions(signed:true) : TextInputType.text,
-              validator:(value) {
-                if ((value??'').trim().isEmpty) return optional.contains(entry.key) ? null : tr(context,'Required');
-                if (numeric.contains(entry.key)) {
-                  try {
-                    if (signed.contains(entry.key)) {
-                      final s=value!.trim(); millimetres(s.startsWith('-') ? s.substring(1) : s,allowZero:true);
-                    } else { millimetres(value!,allowZero:zero.contains(entry.key)); }
-                  } catch (_) { return tr(context,'Enter an integer dimension in mm'); }
-                }
-                return null;
-              }))])))),
-        actions:[TextButton(onPressed:() => Navigator.pop(dialog),child:Text(tr(context,'Cancel'))),
-          FilledButton(onPressed:() {
-            if(!key.currentState!.validate()) return;
-            final value=<String,dynamic>{};
-            for(final entry in controllers.entries) {
-              final text=entry.value.text.trim();
-              if(text.isEmpty && optional.contains(entry.key)) { value[entry.key]=null; continue; }
-              if(numeric.contains(entry.key)) {
-                value[entry.key]=text.startsWith('-') && signed.contains(entry.key)
-                  ? -millimetres(text.substring(1),allowZero:true) : millimetres(text,allowZero:zero.contains(entry.key));
-              } else { value[entry.key]=text; }
-            }
-            Navigator.pop(dialog,value);
-          },child:Text(tr(context,'Save')))]));
-    } finally { for(final ctrl in controllers.values) { ctrl.dispose(); } }
+    return showDialog<Json>(context:context,builder:(_) => MeasurementForm(title:title,
+      fields:fields,initial:initial,numeric:numeric,optional:optional,signed:signed,zero:zero));
   }
+
   Future<void> login(bool register) async {
     final values=await form(register?'Register':'Sign in',{
       if(register) 'name':'Name','email':'Email','password':'Password'});
@@ -255,6 +224,17 @@ class _WorkspaceState extends State<Workspace> {
               FilledButton(onPressed:() => Navigator.pop(d,true),child:Text(tr(context,'Keep server')))]));
           if(yes==true) await run(() => c.store.keepServer(row));
         },child:Text(tr(context,'Keep server'))),
+        if(row['state']=='conflict') TextButton(onPressed:() async {
+          final local=await c.store.get((row['operation'] as Json)['entity_id'] as String);
+          if(!mounted) return;
+          final yes=await showDialog<bool>(context:context,builder:(d) => AlertDialog(
+            title:const Text('Keep local / نگهداری نسخه محلی'),
+            content:SingleChildScrollView(child:SelectableText('Local: $local\nServer: ${(row['response'] as Json)['server_payload']}\nThis explicitly replaces the server values and resets measurement approval. Both revisions are preserved.')),
+            actions:[TextButton(onPressed:() => Navigator.pop(d,false),child:Text(tr(context,'Cancel'))),
+              FilledButton(onPressed:() => Navigator.pop(d,true),child:const Text('Keep local / نگهداری نسخه محلی'))]));
+          if(yes==true) await run(() => c.store.keepLocal(row));
+        },child:const Text('Keep local / نگهداری نسخه محلی')),
+
       ]))),
   ];
   List<Widget> projectScreen(Json project) => [

@@ -35,4 +35,24 @@ void main() {
     expect(revisions.last['body'],contains('Local'));
     await db.close();
   });
+  test('explicit keep-local creates a new rebased operation, preserving receipts',() async {
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
+    final store=LocalStore(db,'one');
+    await store.cache('project',{'id':'p','title':'Server','version':1});
+    await store.save('project',{'id':'p','title':'Local'});
+    var rows=await store.queue();
+    await store.result(rows.single['id'] as String,{'status':'conflict','server_version':3,
+      'server_payload':{'id':'p','title':'Remote','version':3}});
+    rows=await store.queue();
+    await store.keepLocal(rows.single);
+    rows=await store.queue();
+    expect(rows.first['state'],'resolved');
+    expect(rows.last['state'],'pending');
+    expect(rows.last['operation']['base_version'],3);
+    expect(rows.last['operation']['payload']['title'],'Local');
+    expect(rows.last['id'],isNot(rows.first['id']));
+    expect((await store.get('p'))!['version'],4);
+    await db.close();
+  });
+
 }
