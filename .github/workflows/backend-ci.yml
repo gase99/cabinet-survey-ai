@@ -1,9 +1,9 @@
 name: backend-ci
 on:
   push:
-    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
+    paths: ["backend/**", "test_fixtures/**", ".github/workflows/backend-ci.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
+    paths: ["backend/**", "test_fixtures/**", ".github/workflows/backend-ci.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest

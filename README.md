@@ -2,7 +2,7 @@
 
 AI-assisted field surveying and 2D documentation for cabinet makers.
 
-> **Status:** Initial architecture/scaffold, not a feature-complete product. See the roadmap for implementation phases.
+> **Status:** Active pre-release implementation, not release accepted. See [verified project status](docs/project-status.md) and [release limitations](docs/release-notes.md).
 
 ## Approved scope
 - Android + Web client using Flutter/Dart; Persian RTL and English.
@@ -23,14 +23,14 @@ Telegram provides the Bot API; it does **not** host arbitrary customer bot appli
 - `docs`: architecture, requirements, data, AI, geometry, security and operations.
 - `test_fixtures`: anonymized inputs and golden outputs.
 
-## Quick start (backend scaffold)
+## Quick start (backend)
 1. Copy `.env.example` to `.env`; never commit real credentials.
 2. Start PostgreSQL: `docker compose up -d db`.
 3. Install `backend/requirements.txt` in a Python 3.11+ virtual environment.
 4. Run: `uvicorn app.main:app --app-dir backend --reload`.
 5. Visit `http://127.0.0.1:8000/health`.
 
-The Flutter client is a foundation scaffold. Follow [local development](docs/local-development.md).
+Flutter survey source, tests and remote build gates are in `apps/client`; follow its [build guide](apps/client/README.md). Platform acceptance remains incomplete. Follow [local development](docs/local-development.md) and [deployment operations](docs/operations.md).
 
 ## Non-negotiable rules
 - Store canonical dimensions as integer millimetres.
