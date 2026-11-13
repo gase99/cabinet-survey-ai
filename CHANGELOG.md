@@ -27,3 +27,5 @@
 - Android debug APK compilation passed. AAB lint exposed a Java 17/21 toolchain mismatch; CI now uses Java 21 without disabling lint. Corrected AAB run pending.
 - Escape SVG labels to block markup/file-reference injection; render missing element height/sill as unknown instead of invented boxes.
 - Orient plan opening markers along real wall vectors; canonical rendering hashes updated without changing dimensions, area or perimeter. Backend suite: 80 tests pass.
+- All client CI gates now pass on Java 21: 12 Flutter tests, 8 Chrome tests, Web release, debug APK and release-mode AAB. Artifact links and development-signing/API-host limitations are recorded in release notes.
+- Use bcrypt-SHA256 for new passwords to prevent 72-byte truncation; preserve legacy verification. Backend suite: 82 tests pass.

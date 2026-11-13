@@ -90,7 +90,7 @@ def list_exports(project_id: str | None = None, db: Session = Depends(get_db), u
         q = q.filter(ExportJob.project_id == project_id)
     q = q.order_by(ExportJob.created_at.desc()).limit(50)
     jobs = q.all()
-    return [{"id": j.id, "project_id": j.project_id, "format": j.format, "layout": j.layout, "status": j.status, "file_path": j.file_path, "error_message": j.error_message, "created_at": j.created_at} for j in jobs]
+    return [{"id": j.id, "project_id": j.project_id, "format": j.format, "layout": j.layout, "status": j.status, "download_url": f"/api/v1/exports/{j.id}/download", "error_message": j.error_message, "created_at": j.created_at} for j in jobs]
 
 @router.get("/{export_id}/download")
 def download_export(export_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

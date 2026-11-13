@@ -7,14 +7,18 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
-# bcrypt 4.0.1 needs passlib fix: truncate to 72 bytes handled by passlib
+# Prehash new passwords safely; raw bcrypt silently truncates after 72 UTF-8 bytes.
+# Keep legacy verification for existing development records, never rewrite hashes blindly.
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (ValueError, TypeError):
+        return False
 
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes or settings.jwt_access_token_expire_minutes)

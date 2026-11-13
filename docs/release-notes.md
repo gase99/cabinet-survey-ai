@@ -1,7 +1,7 @@
 # Development candidate notes — 0.1.0 (not release accepted)
 
 ## Implemented and verified independently
-- Clean-venv backend suite: 80 passing tests.
+- Clean-venv backend suite: 82 passing tests.
 - Independent worker suite: 4 passing isolated tests; GitHub worker CI passed.
 - Initial migration tested locally on SQLite and in CI on PostgreSQL, including
   metadata comparison and downgrade/re-upgrade. Existing create_all databases must
@@ -11,10 +11,14 @@
 - Exports render engine SVG, with tested PDF A3/A4 media boxes and 300-DPI PNG sizes.
 
 ## Client verification
-Remote Flutter analysis, Flutter tests, explicit Chrome-platform tests and production
-Web compilation passed in run 43435156646 (commit c5cdc96). Android APK/AAB gates
-were in progress at this checkpoint. Device acceptance and live integrations remain
-open; compilation alone does not establish release readiness.
+Remote Flutter analysis, **12 Flutter tests**, **8 Chrome-platform tests**, production
+Web compilation, Android debug APK and release-mode AAB all passed in run
+[43436483276](https://github.com/gase99/cabinet-survey-ai/actions/runs/43436483276).
+[Download build artifacts](https://github.com/gase99/cabinet-survey-ai/actions/runs/43436483276/artifacts/14044115931)
+before 2027-02-11. These mobile binaries use development signing and an intentionally
+invalid API host, not owner production credentials. Rebuild with the authorized
+HTTPS host for connected testing. Device acceptance and live integrations remain
+open; successful builds alone do not establish release readiness.
 
 ## Required before release acceptance
 Independent device/browser acceptance; complete localization; sketch preprocessing;

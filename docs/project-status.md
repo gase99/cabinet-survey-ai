@@ -8,19 +8,19 @@ store publication or live provider/bot verification is claimed.
 | Gate | Evidence | Result |
 | --- | --- | --- |
 | Clean Python dependency install | Fresh `/tmp/cabinet-verify` venv; `pip install -r backend/requirements.txt`; `pip check` | No broken requirements |
-| Backend regression | `cd backend && /tmp/cabinet-verify/bin/pytest -q` | **80 passed**, 2 deprecation warnings |
+| Backend regression | `cd backend && /tmp/cabinet-verify/bin/pytest -q` | **82 passed**, 2 deprecation warnings |
 | Independent worker tests | `cd services/telegram-bot && PYTHONPATH=. /tmp/cabinet-verify/bin/pytest -q` | **4 passed**, isolated HTTP transports |
 | SQLite migrations | Initial upgrade, schema comparison, downgrade | Passed in backend tests |
 | PostgreSQL migrations | GitHub backend CI run 43435156620 | Upgrade/check/downgrade/re-upgrade passed |
-| Flutter analysis | GitHub client run 43435156646, commit c5cdc96 | Passed |
+| Flutter analysis | GitHub client run 43436483276, commit e9f3063 | Passed |
 | Flutter tests | Same run | **12 passed** |
 | Chrome-platform tests | Same run: geometry, API transport and form lifecycle | **8 passed** |
 | Production Web compilation | Same run | Passed |
 | Android debug APK | Same run | Build passed |
-| Android release AAB | Same run | Failed: lint uses Java 21 API on Java 17; CI runtime corrected to Java 21, rerun pending |
+| Android release AAB | Same run | Build passed on Java 21 (57.6 MB AAB) |
 | Docker/runtime deployment | Toolchain unavailable locally | Not executed |
 
-Run links: https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156646
+Run links: https://github.com/gase99/cabinet-survey-ai/actions/runs/43436483276
 and https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156620 .
 
 ## Implemented areas
@@ -65,7 +65,7 @@ and https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156620 .
 - Generated test exports are ignored and isolated in temporary test directories.
 
 ## Remaining acceptance blockers
-- Android AAB rerun/artifacts pending; browser/device interactive workflows not accepted.
+- Android artifacts are built; browser/device interactive workflows and owner signing are not accepted.
 - Crop/rotate/perspective correction, OCR preprocessing, voice recording/transcription,
   full sketch correction/import workflow and some diagnostic translations incomplete.
 - Full drawing drag/snapping editor, persistent undo stacks and server version restore
@@ -90,15 +90,30 @@ fully verified acceptance groups, not source volume or test count. Substantial t
 subsystems exist, but no group satisfies every production acceptance criterion yet.
 
 ## Next execution priorities
-1. Finish Android build gates and expose artifacts with precise signing/host limitations.
+1. Independently install/test Android and Web artifacts against an authorized API host.
 2. Test complete Web/Android workflows, camera, secure storage and SQLite persistence.
 3. Complete offline lifecycle, scanner/editor and multilingual export limitations.
 4. Complete auth/security hardening, live integrations and recovery drill before RC.
 
-## Android toolchain correction
-AAB failure was `image_picker_android:lintVitalAnalyzeRelease` with
-`NoSuchMethodError: java.util.List.removeLast()`. The generated current Android
-lint toolchain requires Java 21. CI now uses Java 21; lint is not disabled.
-Artifact upload is now `always()` so successful Web/APK outputs survive a later
-failed gate. Previous runs skipped artifact upload after AAB failure. AAB success
-must be verified from the corrected run, not inferred from the Java change.
+## Android build artifacts and toolchain correction
+AAB initially failed in lint with `NoSuchMethodError: java.util.List.removeLast()`.
+Switching the generated modern toolchain from Java 17 to Java 21 fixed it without
+disabling lint. **All client gates passed** in run 43436483276.
+
+Download Web bundle, debug APK and release-mode AAB:
+https://github.com/gase99/cabinet-survey-ai/actions/runs/43436483276/artifacts/14044115931
+
+Artifact: `client-development-builds`, ZIP size 155,701,620 bytes.
+ZIP SHA-256: `de2f12d623465d53deeb00e504a9ac37e26017095ec862d746168841bbc9f590`.
+GitHub reports expiration **2027-02-11**; download/archive it before then.
+The artifact is stored externally, not committed as large generated binaries.
+Mobile API host is intentionally `.invalid`; offline capture can be tested, while
+connected acceptance requires rebuilding with the authorized API host. Android
+signing is the generated development signing, not an owner release keystore.
+Flutter source is unchanged between this build and the subsequent backend-only fixes.
+
+New password hashes use bcrypt-SHA256 to avoid truncating long/multibyte passwords;
+legacy bcrypt verification is preserved without silently rewriting credentials.
+Review/rotate legacy credentials before production. Refresh revocation/rate limits
+remain open. Clean-venv backend rerun after this fix: **82 passed**.
+Analysis gate used `--no-fatal-infos`: 11 informational framework deprecations remain.

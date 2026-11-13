@@ -30,3 +30,8 @@ scanning. Uploads remain untrusted customer documents. Configure a scanner/isola
 policy before production. Encryption of Flutter SQLite/photos, distributed auth
 rate limits, refresh-token revocation, recovery email and full privacy retention
 remain release blockers; do not describe the system as production-secure yet.
+
+New passwords use bcrypt-SHA256 prehashing so long/Persian UTF-8 passwords are not
+silently truncated by raw bcrypt's 72-byte limit. Legacy bcrypt hashes still verify
+for compatibility; plan explicit credential rotation/reset before production,
+particularly for any previously overlong passwords. No stored hash is discarded.
