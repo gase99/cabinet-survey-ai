@@ -8,7 +8,7 @@ store publication or live provider/bot verification is claimed.
 | Gate | Evidence | Result |
 | --- | --- | --- |
 | Clean Python dependency install | Fresh `/tmp/cabinet-verify` venv; `pip install -r backend/requirements.txt`; `pip check` | No broken requirements |
-| Backend regression | `cd backend && /tmp/cabinet-verify/bin/pytest -q` | **79 passed**, 2 deprecation warnings |
+| Backend regression | `cd backend && /tmp/cabinet-verify/bin/pytest -q` | **80 passed**, 2 deprecation warnings |
 | Independent worker tests | `cd services/telegram-bot && PYTHONPATH=. /tmp/cabinet-verify/bin/pytest -q` | **4 passed**, isolated HTTP transports |
 | SQLite migrations | Initial upgrade, schema comparison, downgrade | Passed in backend tests |
 | PostgreSQL migrations | GitHub backend CI run 43435156620 | Upgrade/check/downgrade/re-upgrade passed |
@@ -28,6 +28,7 @@ and https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156620 .
   approvals, history, assets, drawings, export jobs, sync, Telegram and administration.
 - Sync validates parents and allowlists, locks versioned updates, persists idempotent
   receipts and rejects stale writes. Failed savepoints do not poison a batch.
+- SVG labels are escaped; unknown element heights/sills remain explicitly unpositioned, never default-size boxes. Plan markers follow wall direction.
 - Engine requires explicit endpoints rather than guessing topology. Canonical SVG hash
   fixtures cover rectangle/L/U/irregular rooms with windows, doors, columns and pipes.
 - Actual SVG vector PDF and raster PNG rendering replaced simulated export rectangles.

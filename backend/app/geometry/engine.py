@@ -1,4 +1,5 @@
 """Deterministic geometry engine — no AI/network calls permitted."""
+from html import escape
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 from enum import Enum
@@ -219,7 +220,7 @@ def generate_plan_svg(points: List[PointMM], walls: List[WallInput], elements: L
             p2 = points[(idx+1) % len(points)]
             mx = (p1.x + p2.x)//2
             my = (p1.y + p2.y)//2
-        wall_labels += f'<text x="{mx}" y="{my}" font-size="120" text-anchor="middle" fill="#1a1a1a">{w.label} ({w.length_mm}mm)</text>\n'
+        wall_labels += f'<text x="{mx}" y="{my}" font-size="120" text-anchor="middle" fill="#1a1a1a">{escape(w.label)} ({w.length_mm}mm)</text>\n'
     # Elements markers (project onto walls: along wall line)
     elem_markers = ""
     for e in elements:
@@ -237,8 +238,8 @@ def generate_plan_svg(points: List[PointMM], walls: List[WallInput], elements: L
             cx = wall.start.x + ux * (e.offset_mm + e.width_mm/2)
             cy = wall.start.y + uy * (e.offset_mm + e.width_mm/2)
             # perpendicular outward offset for marker
-            elem_markers += f'<rect x="{cx - e.width_mm/2}" y="{cy - 80}" width="{e.width_mm}" height="160" fill="none" stroke="#d32f2f" stroke-width="20"/>\n'
-            elem_markers += f'<text x="{cx}" y="{cy - 100}" font-size="80" text-anchor="middle" fill="#d32f2f">{e.label}</text>\n'
+            elem_markers += f'<line x1="{cx - ux*e.width_mm/2}" y1="{cy - uy*e.width_mm/2}" x2="{cx + ux*e.width_mm/2}" y2="{cy + uy*e.width_mm/2}" stroke="#d32f2f" stroke-width="40"/>\n'
+            elem_markers += f'<text x="{cx}" y="{cy - 100}" font-size="80" text-anchor="middle" fill="#d32f2f">{escape(e.label)}</text>\n'
         else:
             # auto-layout case: use points
             idx = next((i for i,w in enumerate(walls) if w.id == e.wall_id), None)
@@ -250,8 +251,8 @@ def generate_plan_svg(points: List[PointMM], walls: List[WallInput], elements: L
             ux = dx/length; uy = dy/length
             cx = p1.x + ux * (e.offset_mm + e.width_mm/2)
             cy = p1.y + uy * (e.offset_mm + e.width_mm/2)
-            elem_markers += f'<rect x="{cx - e.width_mm/2}" y="{cy - 80}" width="{e.width_mm}" height="160" fill="none" stroke="#d32f2f" stroke-width="20"/>\n'
-            elem_markers += f'<text x="{cx}" y="{cy - 100}" font-size="80" text-anchor="middle" fill="#d32f2f">{e.label}</text>\n'
+            elem_markers += f'<line x1="{cx - ux*e.width_mm/2}" y1="{cy - uy*e.width_mm/2}" x2="{cx + ux*e.width_mm/2}" y2="{cy + uy*e.width_mm/2}" stroke="#d32f2f" stroke-width="40"/>\n'
+            elem_markers += f'<text x="{cx}" y="{cy - 100}" font-size="80" text-anchor="middle" fill="#d32f2f">{escape(e.label)}</text>\n'
 
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w}" height="{svg_h}" viewBox="{vb_x} {vb_y} {vb_w} {vb_h}" style="background:#fff">
   <rect x="{vb_x}" y="{vb_y}" width="{vb_w}" height="{vb_h}" fill="#fafafa"/>
@@ -267,7 +268,7 @@ def generate_elevation_svg(wall: WallInput, elements: List[ElementInput]) -> str
     w = wall.length_mm; h = wall.height_mm
     padding = 200
     vb_x = -padding; vb_y = -padding
-    vb_w = w + 2*padding; vb_h = h + 2*padding
+    vb_w = w + 2*padding; vb_h = h + 2*padding + 100*sum(1 for e in elements if e.wall_id == wall.id and (e.height_mm is None or e.sill_mm is None)) + 200
     elem_svg = ""
     for e in elements:
         if e.wall_id != wall.id:
@@ -275,17 +276,20 @@ def generate_elevation_svg(wall: WallInput, elements: List[ElementInput]) -> str
         x = e.offset_mm
         y = e.sill_mm if e.sill_mm is not None else 0
         ew = e.width_mm
-        eh = e.height_mm if e.height_mm is not None else 800  # default for outlets
-        # In SVG, y=0 at top, so invert: wall bottom at h, top at 0
-        # Let's place origin at bottom-left, y up, so SVG viewBox y is 0 at bottom? We'll keep simple: rect from (x, h - y - eh)
+        eh = e.height_mm
+        if eh is None or e.sill_mm is None:
+            # Unknown dimensions/vertical references are explicitly unpositioned;
+            # do not draw an invented 800mm box or assume a floor reference.
+            elem_svg += f'<text x="{x}" y="{h + 240 + 100 * len([v for v in elements[:elements.index(e)] if v.wall_id == wall.id and (v.height_mm is None or v.sill_mm is None)])}" font-size="70" fill="#b45309">{escape(e.label)}: offset {x} mm; width {ew} mm; height {eh if eh is not None else "?"} mm; sill {e.sill_mm if e.sill_mm is not None else "?"} mm (unpositioned)</text>\n'
+            continue
         sy = h - y - eh
-        elem_svg += f'<rect x="{x}" y="{sy}" width="{ew}" height="{eh}" fill="rgba(211,47,47,0.15)" stroke="#d32f2f" stroke-width="15"/>\n'
-        elem_svg += f'<text x="{x+ew/2}" y="{sy - 20}" font-size="90" text-anchor="middle" fill="#333">{e.label} {ew}×{eh or ""}</text>\n'
+        elem_svg += f'<rect x="{x}" y="{sy}" width="{ew}" height="{eh}" fill="#fee2e2" stroke="#d32f2f" stroke-width="15"/>\n'
+        elem_svg += f'<text x="{x+ew/2}" y="{sy - 20}" font-size="90" text-anchor="middle" fill="#333">{escape(e.label)} {ew}×{eh}</text>\n'
 
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="{vb_x} {vb_y} {vb_w} {vb_h}" style="background:#fff">
   <rect x="{vb_x}" y="{vb_y}" width="{vb_w}" height="{vb_h}" fill="#fafafa"/>
   <rect x="0" y="0" width="{w}" height="{h}" fill="#fff" stroke="#1a1a1a" stroke-width="25"/>
-  <text x="{w/2}" y="-60" font-size="110" text-anchor="middle" fill="#1a1a1a">{wall.label} — {w} mm × {h} mm</text>
+  <text x="{w/2}" y="-60" font-size="110" text-anchor="middle" fill="#1a1a1a">{escape(wall.label)} — {w} mm × {h} mm</text>
   {elem_svg}
   <text x="0" y="{h+60}" font-size="70" fill="#777">Reference: left corner • FFL datum</text>
   <!-- dimension line bottom -->

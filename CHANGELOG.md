@@ -25,3 +25,5 @@
 - Clean-venv verification: 79 backend tests and 4 worker tests pass; dependency check clean.
 - Remote Chrome-platform tests and production Web build pass; Android build status remains pending.
 - Android debug APK compilation passed. AAB lint exposed a Java 17/21 toolchain mismatch; CI now uses Java 21 without disabling lint. Corrected AAB run pending.
+- Escape SVG labels to block markup/file-reference injection; render missing element height/sill as unknown instead of invented boxes.
+- Orient plan opening markers along real wall vectors; canonical rendering hashes updated without changing dimensions, area or perimeter. Backend suite: 80 tests pass.

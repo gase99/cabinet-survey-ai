@@ -1,7 +1,7 @@
 # Development candidate notes — 0.1.0 (not release accepted)
 
 ## Implemented and verified independently
-- Clean-venv backend suite: 79 passing tests.
+- Clean-venv backend suite: 80 passing tests.
 - Independent worker suite: 4 passing isolated tests; GitHub worker CI passed.
 - Initial migration tested locally on SQLite and in CI on PostgreSQL, including
   metadata comparison and downgrade/re-upgrade. Existing create_all databases must
