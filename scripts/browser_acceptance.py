@@ -17,7 +17,14 @@ with sync_playwright() as p:
             context=browser.new_context(viewport={'width':1440,'height':1000})
             page=context.new_page()
             def open_app():
-                page.goto('http://127.0.0.1:8173/',wait_until='networkidle')
+                # A Flutter Web shell never reaches Playwright's network-idle heuristic:
+                # the engine and its service workers keep background activity alive, so
+                # page.goto(wait_until='networkidle') times out even when the app is fine.
+                # Wait for the document, then require Flutter's own readiness markers;
+                # a shell that fails to load or boot still fails the checks below.
+                response=page.goto('http://127.0.0.1:8173/',wait_until='domcontentloaded',timeout=60000)
+                if response is None or not response.ok:
+                    raise RuntimeError(f'Application shell did not load: HTTP {response.status if response else "no response"}')
                 placeholder=page.locator('flt-semantics-placeholder')
                 placeholder.wait_for(state='attached',timeout=60000)
                 placeholder.evaluate('(element) => element.click()')
