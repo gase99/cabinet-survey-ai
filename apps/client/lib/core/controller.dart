@@ -35,13 +35,34 @@ class SurveyController extends ChangeNotifier {
       email = address;
       // Refresh token never enters SQLite or a browser URL.
       await secure.write(key: 'refresh', value: tokens['refresh_token'] as String);
+      await secure.write(key: 'owner', value: owner);
+      await secure.write(key: 'email', value: address);
       offline = false;
       notifyListeners();
     } catch (_) { api.token = null; rethrow; }
   }
+  Future<void> restore() async {
+    try {
+      final refresh=await secure.read(key:'refresh');
+      final savedOwner=await secure.read(key:'owner');
+      if(refresh==null || savedOwner==null) return;
+      owner=savedOwner;
+      email=await secure.read(key:'email');
+      offline=true;
+      try {
+        final tokens=await api.request('POST','auth/refresh',{'refresh_token':refresh}) as Json;
+        api.token=tokens['access_token'] as String;
+        await secure.write(key:'refresh',value:tokens['refresh_token'] as String);
+        offline=false;
+      } on ApiException catch(error) {
+        if(error.status==401) { await logout(); return; }
+      } catch(_) { /* Network absent: retain account-scoped local capture. */ }
+      notifyListeners();
+    } catch(_) { /* Secure storage unavailable: use explicit sign-in/offline workspace. */ }
+  }
   void captureOffline() { offline = true; notifyListeners(); }
   Future<void> logout() async {
-    await secure.delete(key:'refresh');
+    for(final key in ['refresh','owner','email']) { await secure.delete(key:key); }
     api.token = null;
     owner = 'device-local'; email = null; offline = false;
     notifyListeners();

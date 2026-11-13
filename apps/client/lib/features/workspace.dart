@@ -7,6 +7,7 @@ import '../core/store.dart';
 import '../core/l10n.dart';
 import '../domain/survey.dart';
 import 'drawing.dart';
+import 'sketch_review.dart';
 
 class Workspace extends StatefulWidget {
   final SurveyController controller;
@@ -23,7 +24,8 @@ class _WorkspaceState extends State<Workspace> {
   List<Json> projects = [], rooms = [], walls = [], elements = [], photos = [], queue = [];
   final undo = <Json>[], redo = <Json>[];
   @override
-  void initState() { super.initState(); reload(); }
+  void initState() { super.initState(); initialize(); }
+  Future<void> initialize() async { await c.restore(); await reload(); }
   Future<void> reload() async {
     final p = await c.store.list('project');
     final r = await c.store.list('room');
@@ -182,6 +184,29 @@ class _WorkspaceState extends State<Workspace> {
         mimeType:format=='pdf'?MimeType.pdf:MimeType.png);
     });
   }
+  Future<void> telegram() async {
+    await run(() async {
+      final status=await c.api.request('GET','telegram/link-status') as Json;
+      final Json response=status['linked']==true ? status : await c.api.request('POST','telegram/pairing-code',{}) as Json;
+      if(!mounted) return;
+      await showDialog<void>(context:context,builder:(d) => AlertDialog(title:const Text('Telegram'),
+        content:SelectableText(status['linked']==true ? 'Linked: ${response['telegram_username']??response['telegram_chat_id']}'
+          : 'Send /pair ${response['code']} to your workshop bot.\nExpires: ${response['expires_at']}'),
+        actions:[TextButton(onPressed:() => Navigator.pop(d),child:const Text('OK'))]));
+    });
+  }
+  Future<void> sendTelegram(Json project) async {
+    await run(() async {
+      final jobs=await c.api.request('GET','exports?project_id=${project['id']}') as List;
+      if(!mounted) return;
+      final selected=await showDialog<String>(context:context,builder:(d) => SimpleDialog(title:const Text('Send approved export to Telegram'),
+        children:[for(final raw in jobs) if((raw as Json)['status']=='done') SimpleDialogOption(
+          onPressed:() => Navigator.pop(d,raw['id'] as String),child:Text('${raw['format']} ${raw['layout']} · ${raw['created_at']}'))]));
+      if(selected==null) return;
+      final receipt=await c.api.request('POST','telegram/send',{'export_job_id':selected});
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$receipt')));
+    });
+  }
   @override
   Widget build(BuildContext context) {
     final active=c.email!=null || c.offline;
@@ -218,6 +243,7 @@ class _WorkspaceState extends State<Workspace> {
         trailing:IconButton(icon:const Icon(Icons.edit_outlined),onPressed:() => editProject(p)))),
     const Divider(),
     FilledButton.tonalIcon(onPressed:c.api.token==null?null:() => run(c.sync),icon:const Icon(Icons.sync),label:Text(tr(context,'Sync'))),
+    OutlinedButton(onPressed:c.api.token==null?null:telegram,child:const Text('Telegram')) ,
     Text('${tr(context,'Pending changes')}: ${queue.where((q) => q['state']!='applied' && q['state']!='resolved').length}'),
     for(final row in queue.where((q) => q['state']=='conflict' || q['state']=='failed'))
       Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -236,7 +262,8 @@ class _WorkspaceState extends State<Workspace> {
       OutlinedButton(onPressed:() => customer(project),child:Text(tr(context,'Customer name'))),
       OutlinedButton(onPressed:() => run(() => c.store.save('project',{...project,'status':project['status']=='archived'?'draft':'archived'})),
         child:Text(tr(context,project['status']=='archived'?'Restore':'Archive'))),
-      OutlinedButton(onPressed:() => export(project),child:Text(tr(context,'Export')))]),
+      OutlinedButton(onPressed:() => export(project),child:Text(tr(context,'Export'))),
+      OutlinedButton(onPressed:c.api.token==null?null:() => sendTelegram(project),child:const Text('Telegram'))]),
     Text('${project['site_notes']??''}'),
     ListTile(title:Text(tr(context,'Rooms')),trailing:IconButton(onPressed:addRoom,icon:const Icon(Icons.add))),
     for(final room in rooms) Card(child:ListTile(title:Text(room['label'] as String),onTap:() async {roomId=room['id'] as String; await reload();})),
@@ -244,7 +271,10 @@ class _WorkspaceState extends State<Workspace> {
     Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:() => photo(ImageSource.camera),icon:const Icon(Icons.camera_alt),label:Text(tr(context,'Camera'))),
       OutlinedButton.icon(onPressed:() => photo(ImageSource.gallery),icon:const Icon(Icons.photo_library),label:Text(tr(context,'Gallery')))]),
     Text(tr(context,'AI candidates require review; no dimensions are inferred from pixels.')),
-    for(final image in photos) Padding(padding:const EdgeInsets.all(8),child:Image.memory(image['bytes'] as Uint8List,height:240,fit:BoxFit.contain)),
+    for(final image in photos) Card(child:Column(children:[
+      Image.memory(image['bytes'] as Uint8List,height:240,fit:BoxFit.contain),
+      TextButton(onPressed:() => Navigator.push(context,MaterialPageRoute<void>(builder:(_) => SketchReview(controller:c,photo:image))),
+        child:Text(tr(context,'Review')))])),
   ];
   List<Widget> roomScreen() => [
     Wrap(spacing:8,children:[FilledButton.icon(onPressed:() => editWall(),icon:const Icon(Icons.add),label:Text(tr(context,'Add wall'))),
