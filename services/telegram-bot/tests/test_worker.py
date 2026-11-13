@@ -117,3 +117,14 @@ def test_cancelled_cached_delivery_is_not_sent_after_unlink(tmp_path):
             assert worker.db.execute('SELECT state FROM deliveries').fetchone()[0]=='done'
             worker.db.close()
     asyncio.run(run())
+
+
+def test_webhook_rejects_bool_overflow_and_oversized_body(tmp_path,monkeypatch):
+    async def no_loop(self):await asyncio.Event().wait()
+    monkeypatch.setattr(Worker,'loop',no_loop)
+    cfg=config(tmp_path)
+    with TestClient(create_app(cfg)) as client:
+        headers={'X-Telegram-Bot-Api-Secret-Token':cfg.webhook_secret}
+        for value in [True,-1,2**100,'1']:
+            assert client.post('/webhook',headers=headers,json={'update_id':value}).status_code==422
+        assert client.post('/webhook',headers=headers,content=b'x'*(1024*1024+1)).status_code==413

@@ -45,6 +45,11 @@ jobs:
       - run: alembic upgrade head && alembic check && alembic downgrade base && alembic upgrade head
         working-directory: backend
 
+      - name: PostgreSQL transaction and concurrency regressions
+        env:
+          ACCEPTANCE_DISPOSABLE_DATABASE: '1'
+        run: pytest tests/test_postgres_concurrency.py -q
+        working-directory: backend
       - name: Disposable PostgreSQL and asset backup restoration drill
         env:
           ACCEPTANCE_DISPOSABLE_DATABASE: '1'
