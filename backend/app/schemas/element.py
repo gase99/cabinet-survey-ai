@@ -6,18 +6,18 @@ ELEMENT_KINDS = ["window","door","column","beam","gas_pipe","water_pipe","drain"
 class ElementCreate(BaseModel):
     label: str = Field(min_length=1, max_length=200)
     kind: str = Field(pattern="^(window|door|column|beam|gas_pipe|water_pipe|drain|electrical|switch|socket|ventilation|recess|protrusion|custom)$")
-    offset_mm: int = Field(ge=0)
-    width_mm: int = Field(ge=1, le=50000)
-    height_mm: int | None = Field(default=None, ge=1)
-    sill_mm: int | None = Field(default=None, ge=0)
-    depth_mm: int | None = Field(default=None, ge=0)
-    source: str = Field(default="manual")
+    offset_mm: int = Field(strict=True, ge=0)
+    width_mm: int = Field(strict=True, ge=1, le=50000)
+    height_mm: int | None = Field(strict=True, default=None, ge=1)
+    sill_mm: int | None = Field(strict=True, default=None, ge=0)
+    depth_mm: int | None = Field(strict=True, default=None, ge=0)
+    source: str = Field(default="manual", pattern="^(manual|sketch_ai|voice_ai|import)$")
 
 class ElementUpdate(BaseModel):
     label: str | None = None
     kind: str | None = Field(default=None)
-    offset_mm: int | None = Field(default=None, ge=0)
-    width_mm: int | None = Field(default=None, ge=1)
+    offset_mm: int | None = Field(strict=True, default=None, ge=0)
+    width_mm: int | None = Field(strict=True, default=None, ge=1)
     height_mm: int | None = None
     sill_mm: int | None = None
     depth_mm: int | None = None

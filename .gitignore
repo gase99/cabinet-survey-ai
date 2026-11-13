@@ -33,3 +33,5 @@ apps/client/android/
 apps/client/web/
 
 **/var/data/
+apps/client/acceptance-browser/
+**/test-results/

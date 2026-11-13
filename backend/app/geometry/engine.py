@@ -98,7 +98,7 @@ def compute_polygon_area(points: List[PointMM]) -> int:
         s += points[i].x * points[j].y - points[j].x * points[i].y
     return abs(s)//2
 
-def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 5) -> Tuple[List[PointMM], List[GeometryValidationError]]:
+def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 1) -> Tuple[List[PointMM], List[GeometryValidationError]]:
     """
     Compute room polygon from walls.
     Supports two modes:
@@ -136,7 +136,7 @@ def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 5) -> Tuple[Lis
         # Validate closure: each wall end should match next wall start (within tolerance), and last to first
         for i, w in enumerate(walls):
             nxt = walls[(i+1) % len(walls)]
-            if w.end.distance_to(nxt.start) > tolerance_mm:  # type: ignore
+            if w.end != nxt.start:  # type: ignore
                 errors.append(GeometryValidationError(
                     code="disconnected_walls",
                     message=f"Wall {w.id} end does not connect to wall {nxt.id} start (gap {w.end.distance_to(nxt.start):.1f} mm)",
@@ -153,43 +153,47 @@ def walls_to_polygon(walls: List[WallInput], tolerance_mm: int = 5) -> Tuple[Lis
             entity_ids=[w.id for w in walls])]
 
 def validate_elements(elements: List[ElementInput], walls: List[WallInput]) -> List[GeometryValidationError]:
-    errors: List[GeometryValidationError] = []
-    wall_by_id = {w.id: w for w in walls}
-    # Group by wall to detect overlaps
-    by_wall: Dict[str, List[ElementInput]] = {}
+    errors = []
+    wall_by_id = {w.id:w for w in walls}
     for e in elements:
-        by_wall.setdefault(e.wall_id, []).append(e)
-        if e.wall_id not in wall_by_id:
-            errors.append(GeometryValidationError(code="unknown_wall", message=f"Element {e.id} references unknown wall {e.wall_id}", entity_ids=[e.id, e.wall_id]))
+        wall = wall_by_id.get(e.wall_id)
+        if wall is None:
+            errors.append(GeometryValidationError('unknown_wall','Element references unknown wall',[e.id,e.wall_id]))
             continue
-        wall = wall_by_id[e.wall_id]
-        # Bounds: offset >=0 and offset+width <= wall length
-        if e.offset_mm < 0:
-            errors.append(GeometryValidationError(code="negative_offset", message=f"Element {e.id} offset negative", entity_ids=[e.id]))
-        if e.width_mm <= 0:
-            errors.append(GeometryValidationError(code="invalid_width", message=f"Element {e.id} width must be >0", entity_ids=[e.id]))
-        if e.offset_mm + e.width_mm > wall.length_mm:
-            errors.append(GeometryValidationError(code="out_of_bounds", message=f"Element {e.id} exceeds wall {wall.id} length {wall.length_mm} mm (offset {e.offset_mm}+width {e.width_mm})", entity_ids=[e.id, wall.id]))
-        # Height vs wall height
-        if e.height_mm is not None and e.height_mm > wall.height_mm:
-            errors.append(GeometryValidationError(code="height_exceeds_wall", message=f"Element {e.id} height {e.height_mm} exceeds wall height {wall.height_mm}", entity_ids=[e.id]))
+        dimensions=[e.offset_mm,e.width_mm,*[v for v in (e.height_mm,e.sill_mm,e.depth_mm) if v is not None]]
+        if any(type(v) is not int for v in dimensions):
+            errors.append(GeometryValidationError('non_integer_dimension','Dimensions must be integer mm',[e.id]))
+            continue
+        if e.offset_mm < 0 or e.width_mm <= 0 or e.offset_mm+e.width_mm > wall.length_mm:
+            errors.append(GeometryValidationError('out_of_bounds','Element exceeds wall length',[e.id,wall.id]))
+        if (e.height_mm is not None and (e.height_mm <= 0 or e.height_mm > wall.height_mm)) or (e.sill_mm is not None and (e.sill_mm < 0 or e.sill_mm > wall.height_mm)) or (e.sill_mm is not None and e.height_mm is not None and e.sill_mm+e.height_mm > wall.height_mm) or (e.depth_mm is not None and e.depth_mm < 0):
+            errors.append(GeometryValidationError('height_exceeds_wall','Invalid vertical/depth bounds',[e.id,wall.id]))
+    for i,a in enumerate(elements):
+        for b in elements[i+1:]:
+            if a.wall_id != b.wall_id or a.wall_id not in wall_by_id:
+                continue
+            h=wall_by_id[a.wall_id].height_mm
+            # Unknown vertical spans cannot prove separation; conservatively block overlap.
+            ay,at=(a.sill_mm,a.sill_mm+a.height_mm) if a.sill_mm is not None and a.height_mm is not None else (0,h)
+            by,bt=(b.sill_mm,b.sill_mm+b.height_mm) if b.sill_mm is not None and b.height_mm is not None else (0,h)
+            if a.offset_mm < b.offset_mm+b.width_mm and b.offset_mm < a.offset_mm+a.width_mm and ay < bt and by < at:
+                errors.append(GeometryValidationError('overlap','Elements overlap or separation is unmeasured',[a.id,b.id,a.wall_id]))
+    return errors
 
-    # Overlap detection per wall
-    for wall_id, elems in by_wall.items():
-        # Sort by offset
-        elems_sorted = sorted(elems, key=lambda x: x.offset_mm)
-        for i in range(len(elems_sorted)-1):
-            a = elems_sorted[i]
-            b = elems_sorted[i+1]
-            a_end = a.offset_mm + a.width_mm
-            if a_end > b.offset_mm:
-                # Overlap
-                # Allow if kinds are compatible? For now all overlaps are errors
-                errors.append(GeometryValidationError(
-                    code="overlap",
-                    message=f"Elements {a.id} and {b.id} overlap on wall {wall_id} ({a_end - b.offset_mm} mm)",
-                    entity_ids=[a.id, b.id, wall_id]
-                ))
+
+def validate_topology(points):
+    errors=[]
+    def orient(a,b,c): return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
+    def intersects(a,b,c,d):
+        bounds=max(min(a.x,b.x),min(c.x,d.x))<=min(max(a.x,b.x),max(c.x,d.x)) and max(min(a.y,b.y),min(c.y,d.y))<=min(max(a.y,b.y),max(c.y,d.y))
+        return bounds and orient(a,b,c)*orient(a,b,d)<=0 and orient(c,d,a)*orient(c,d,b)<=0
+    for i in range(len(points)):
+        for j in range(i+1,len(points)):
+            if j==i+1 or (i==0 and j==len(points)-1):continue
+            if intersects(points[i],points[(i+1)%len(points)],points[j],points[(j+1)%len(points)]):
+                errors.append(GeometryValidationError('self_intersection','Room edges intersect'))
+    if points and compute_polygon_area(points)==0:
+        errors.append(GeometryValidationError('zero_area','Room has zero area'))
     return errors
 
 def generate_plan_svg(points: List[PointMM], walls: List[WallInput], elements: List[ElementInput], padding_mm: int = 500) -> str:
@@ -303,6 +307,16 @@ def build_geometry(walls: List[WallInput], elements: List[ElementInput] | None =
     errors: List[GeometryValidationError] = []
     warnings: List[GeometryValidationError] = []
 
+    if len(walls) < 3:
+        errors.append(GeometryValidationError('insufficient_walls','A room requires at least three walls'))
+    if len({w.id for w in walls}) != len(walls) or len({e.id for e in elements}) != len(elements):
+        errors.append(GeometryValidationError('duplicate_id','Stable entity IDs must be unique'))
+    for w in walls:
+        values=[w.length_mm,w.height_mm]
+        if w.start: values.extend([w.start.x,w.start.y])
+        if w.end: values.extend([w.end.x,w.end.y])
+        if any(type(v) is not int for v in values):
+            raise ValueError('Geometry accepts integer millimetres only')
     # Validate walls positive
     for w in walls:
         if w.length_mm <= 0:
@@ -316,6 +330,7 @@ def build_geometry(walls: List[WallInput], elements: List[ElementInput] | None =
     # Compute polygon
     points, poly_errors = walls_to_polygon(walls)
     errors.extend(poly_errors)
+    errors.extend(validate_topology(points))
 
     # Validate elements
     elem_errors = validate_elements(elements, walls)

@@ -55,4 +55,15 @@ void main() {
     await db.close();
   });
 
+  test('snapshot import never overwrites a newly queued local edit',() async {
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
+    final store=LocalStore(db,'one');
+    await store.cache('project',{'id':'p','title':'Original','status':'draft','version':1});
+    await store.save('project',{'id':'p','title':'Measurement notes'});
+    await store.cache('project',{'id':'p','title':'Stale response','status':'archived','version':1});
+    expect((await store.get('p'))!['title'],'Measurement notes');
+    expect((await store.get('p'))!['status'],'draft');
+    await db.close();
+  });
+
 }

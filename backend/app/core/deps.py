@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.db_models import User
+from app.services.sessions import active_session
 
 security = HTTPBearer(auto_error=False)
 
@@ -17,6 +18,7 @@ def get_current_user(
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    active_session(db, payload)
     user_id = payload.get("sub")
     user = db.get(User, user_id)
     if not user or not user.is_active:
@@ -34,8 +36,7 @@ def get_optional_user(
 ) -> User | None:
     if not credentials:
         return None
-    payload = decode_token(credentials.credentials)
-    if not payload:
+    try:
+        return get_current_user(credentials, db)
+    except HTTPException:
         return None
-    user_id = payload.get("sub")
-    return db.get(User, user_id)

@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token, validate_password_strength
-from app.models.db_models import User
+from app.models.db_models import User, AuthSession
+from app.services.sessions import active_session, issue, digest
+from fastapi.security import HTTPAuthorizationCredentials
+from app.core.deps import security
+import secrets
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, UserOut, UpdateProfileRequest, ChangePasswordRequest
 from app.core.deps import get_current_user
 from app.services.audit import log_audit
@@ -36,10 +40,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
-    access = create_access_token(user.id)
-    refresh = create_refresh_token(user.id)
+    tokens = issue(db, user.id)
     log_audit(db, user_id=user.id, project_id=None, action="user.login", entity_type="user", entity_id=user.id)
-    return TokenResponse(access_token=access, refresh_token=refresh, expires_in=1800)
+    return tokens
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
@@ -50,13 +53,20 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found")
-    access = create_access_token(user.id)
-    refresh_tok = create_refresh_token(user.id)
-    return TokenResponse(access_token=access, refresh_token=refresh_tok)
+    active_session(db, data)
+    session = db.query(AuthSession).filter_by(id=data['sid']).with_for_update().populate_existing().one()
+    if session.revoked or not secrets.compare_digest(session.refresh_digest, digest(payload.refresh_token)):
+        session.revoked = True
+        db.commit()
+        raise HTTPException(401, "Refresh token replay detected; sign in again")
+    return issue(db, user.id, session)
 
 @router.post("/logout")
-def logout(user: User = Depends(get_current_user)):
-    # Stateless JWT: client discards tokens. In production, maintain denylist.
+def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db),
+           credentials: HTTPAuthorizationCredentials = Depends(security)):
+    session = active_session(db, decode_token(credentials.credentials))
+    session.revoked = True
+    db.commit()
     return {"status": "logged_out"}
 
 @router.get("/me", response_model=UserOut)
@@ -85,6 +95,7 @@ def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db
     if err:
         raise HTTPException(status_code=400, detail=err)
     user.hashed_password = hash_password(payload.new_password)
+    db.query(AuthSession).filter_by(user_id=user.id).update({"revoked": True})
     db.commit()
     log_audit(db, user_id=user.id, project_id=None, action="user.change_password", entity_type="user", entity_id=user.id)
     return {"status": "password_changed"}

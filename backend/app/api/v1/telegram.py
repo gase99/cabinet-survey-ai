@@ -49,7 +49,7 @@ def verify_pairing(payload: dict, db: Session = Depends(get_db), x_webhook_secre
     username = payload.get("telegram_username")
     if not code or not chat_id:
         raise HTTPException(status_code=400, detail="code and telegram_chat_id required")
-    pc = db.query(PairingCode).filter(PairingCode.code == code.upper()).first()
+    pc = db.query(PairingCode).filter(PairingCode.code == code.upper()).with_for_update().populate_existing().first()
     if not pc:
         raise HTTPException(status_code=404, detail="Invalid pairing code")
     if pc.used:
@@ -76,6 +76,7 @@ def link_status(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 @router.delete("/unlink")
 def unlink(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    db.query(TelegramDelivery).filter_by(owner_id=user.id, status="pending").update({"status": "cancelled"})
     user.telegram_chat_id = None
     user.telegram_username = None
     db.commit()
@@ -153,8 +154,22 @@ def delivery_result(payload: dict, db: Session = Depends(get_db), x_webhook_secr
     d = db.get(TelegramDelivery, delivery_id)
     if not d:
         raise HTTPException(status_code=404, detail="Delivery not found")
+    if d.status in {"sent", "failed", "cancelled"}:
+        if d.status == status and d.message_id == (str(message_id) if message_id else None):
+            return {"status": "updated"}
+        raise HTTPException(409, "Terminal delivery status cannot be overwritten")
     d.status = status
     d.message_id = str(message_id) if message_id else None
     d.error = error
     db.commit()
     return {"status": "updated"}
+
+
+@router.get("/internal/deliveries/{delivery_id}")
+def internal_delivery_status(delivery_id: str, db: Session = Depends(get_db),
+                             x_webhook_secret: str | None = Header(default=None)):
+    require_worker_secret(x_webhook_secret)
+    delivery=db.get(TelegramDelivery,delivery_id)
+    if delivery is None:
+        raise HTTPException(404,"Delivery not found")
+    return {"delivery_id":delivery.id,"status":delivery.status}

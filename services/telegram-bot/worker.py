@@ -48,7 +48,7 @@ class Worker:
         self.db.commit()
 
     def enqueue(self, update):
-        if not isinstance(update.get('update_id'),int):
+        if type(update.get('update_id')) is not int or not 0 <= update['update_id'] <= 2**63-1:
             raise ValueError('Invalid update ID')
         self.db.execute('INSERT OR IGNORE INTO updates(id,payload) VALUES (?,?)',
                         (update['update_id'],json.dumps(update)))
@@ -101,6 +101,7 @@ class Worker:
 
     async def process_deliveries(self):
         pending=await self.backend('GET','telegram/internal/pending-deliveries')
+        eligible={item['delivery_id'] for item in pending}
         for item in pending:
             self.db.execute('INSERT OR IGNORE INTO deliveries(id,payload) VALUES (?,?)',
                 (item['delivery_id'],json.dumps(item)))
@@ -110,6 +111,13 @@ class Worker:
             item=json.loads(payload)
             try:
                 if state=='pending':
+                    if id not in eligible:
+                        # A local retry is not authorization to send after unlink/cancel.
+                        status=await self.backend('GET',f'telegram/internal/deliveries/{id}')
+                        if status['status']!='pending':
+                            self.db.execute('UPDATE deliveries SET state="done",payload="{}" WHERE id=?',(id,))
+                            self.db.commit()
+                            continue
                     path=Path(item['file_path']).resolve()
                     root=self.config.export_root.resolve()
                     if not path.is_relative_to(root) or not path.is_file() or path.suffix not in {'.pdf','.png'}:
@@ -173,8 +181,10 @@ def create_app(config=None):
         if not x_telegram_bot_api_secret_token or not hmac.compare_digest(
                 app.state.worker.config.webhook_secret,x_telegram_bot_api_secret_token):
             raise HTTPException(401,'Invalid webhook secret')
-        body=await request.body()
-        if len(body)>1024*1024: raise HTTPException(413,'Update too large')
+        body=bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body)>1024*1024: raise HTTPException(413,'Update too large')
         try:
             payload=json.loads(body)
             app.state.worker.enqueue(payload)

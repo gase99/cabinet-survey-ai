@@ -54,7 +54,7 @@ class LocalStore {
       }
       // All subsequent local edits depend on the preceding revision, even offline.
       final base = before?['version'] as int? ?? 0;
-      final next = {...value, 'created_at': before?['created_at'] ?? value['created_at'] ?? DateTime.now().toUtc().toIso8601String(), 'version': base+1};
+      final next = {...?before, ...value, 'created_at': before?['created_at'] ?? value['created_at'] ?? DateTime.now().toUtc().toIso8601String(), 'version': base+1};
       final operation = {'id': uuid.v4(), 'entity_type': kind, 'entity_id': value['id'],
         'operation': before == null ? 'create' : 'update', 'payload': payload,
         'base_version': base};
@@ -73,8 +73,12 @@ class LocalStore {
   }
   Future<void> cache(String kind, Json value) async {
     // Caller must check the queue before importing remote values.
-    await db.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind,
-      'body': jsonEncode(value)}, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((tx) async {
+      final queued=await tx.query('outbox',where:'owner=? AND state NOT IN (?,?)',whereArgs:[owner,'applied','resolved']);
+      if(queued.any((row) => (jsonDecode(row['body'] as String) as Json)['entity_id']==value['id'])) return;
+      await tx.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind,
+        'body': jsonEncode(value)}, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
   Future<void> keepServer(Json row) async {
     final op = row['operation'] as Json;

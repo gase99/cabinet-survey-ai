@@ -111,3 +111,18 @@ def test_pairing_expiration(client, auth_headers, db_session):
                            json={"code": code, "telegram_chat_id": "12345"})
     assert response.status_code == 400
     assert response.json()["detail"] == "Pairing code expired"
+
+
+def test_unlink_cancels_queued_deliveries_and_callback_replay_cannot_resurrect(client,auth_headers,db_session):
+    from app.models.db_models import User,TelegramDelivery
+    user=db_session.query(User).filter_by(email='test@example.com').one()
+    user.telegram_chat_id='12345'
+    delivery=TelegramDelivery(owner_id=user.id,chat_id='12345',status='pending')
+    db_session.add(delivery);db_session.commit()
+    assert client.delete('/api/v1/telegram/unlink',headers=auth_headers).status_code==200
+    db_session.refresh(delivery)
+    assert delivery.status=='cancelled'
+    assert client.get('/api/v1/telegram/internal/pending-deliveries',headers=WORKER_HEADERS).json()==[]
+    response=client.post('/api/v1/telegram/internal/delivery-result',headers=WORKER_HEADERS,
+        json={'delivery_id':delivery.id,'status':'sent','message_id':'42'})
+    assert response.status_code==409

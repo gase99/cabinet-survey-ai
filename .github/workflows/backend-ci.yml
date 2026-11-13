@@ -1,19 +1,21 @@
 name: backend-ci
 on:
   push:
-    paths: ["backend/**", "test_fixtures/**", ".github/workflows/backend-ci.yml"]
   pull_request:
-    paths: ["backend/**", "test_fixtures/**", ".github/workflows/backend-ci.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record exact tested commit
+        run: git rev-parse HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install -r backend/requirements.txt
-      - run: pytest -q
+      - run: pytest -q --junitxml=/tmp/backend-tests.xml
         working-directory: backend
   postgres-migration:
     runs-on: ubuntu-latest
@@ -32,6 +34,10 @@ jobs:
       DATABASE_URL: postgresql+psycopg://fixture:ci-only-fixture@localhost:5432/cabinet_test
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record exact tested commit
+        run: git rev-parse HEAD
       - uses: actions/setup-python@v6
         with: {python-version: '3.11'}
       - run: pip install -r requirements.txt

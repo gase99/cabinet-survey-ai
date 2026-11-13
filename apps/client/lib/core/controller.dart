@@ -16,12 +16,12 @@ final controllerProvider = ChangeNotifierProvider.family<SurveyController, Datab
 
 class SurveyController extends ChangeNotifier {
   final Database db;
-  final Api api = Api();
+  final Api api;
   final FlutterSecureStorage secure = const FlutterSecureStorage();
   String owner = 'device-local';
   bool offline = false;
   String? email;
-  SurveyController(this.db);
+  SurveyController(this.db, {Api? api}) : api = api ?? Api();
   LocalStore get store => LocalStore(db, owner);
 
   Future<void> login(String address, String password, {String? name}) async {
@@ -62,6 +62,9 @@ class SurveyController extends ChangeNotifier {
   }
   void captureOffline() { offline = true; notifyListeners(); }
   Future<void> logout() async {
+    try {
+      if(api.token!=null) await api.request('POST','auth/logout',{});
+    } catch(_) { /* Offline logout clears local credentials; remote revocation requires connectivity. */ }
     for(final key in ['refresh','owner','email']) { await secure.delete(key:key); }
     api.token = null;
     owner = 'device-local'; email = null; offline = false;

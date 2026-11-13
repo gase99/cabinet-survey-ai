@@ -183,7 +183,7 @@ class _WorkspaceState extends State<Workspace> {
     return Scaffold(appBar:AppBar(title:Text(project?['title'] as String? ?? tr(context,'Cabinet Survey AI')),
       leading:projectId==null?null:IconButton(icon:const Icon(Icons.arrow_back),onPressed:() async {
         setState(() {if(roomId!=null) {roomId=null;} else {projectId=null;} undo.clear(); redo.clear();}); await reload();}),
-      actions:[IconButton(onPressed:widget.toggleLocale,icon:const Icon(Icons.translate)),
+      actions:[IconButton(tooltip:"English / فارسی",onPressed:widget.toggleLocale,icon:const Icon(Icons.translate)),
         if(active) IconButton(tooltip:tr(context,'Sign out'),onPressed:busy?null:() => run(() async {await c.logout(); projectId=null; roomId=null;}),icon:const Icon(Icons.logout))]),
       body:AbsorbPointer(absorbing:busy,child:Column(children:[if(busy) const LinearProgressIndicator(),
         Expanded(child:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:1100),child:
@@ -245,7 +245,7 @@ class _WorkspaceState extends State<Workspace> {
       OutlinedButton(onPressed:() => export(project),child:Text(tr(context,'Export'))),
       OutlinedButton(onPressed:c.api.token==null?null:() => sendTelegram(project),child:const Text('Telegram'))]),
     Text('${project['site_notes']??''}'),
-    ListTile(title:Text(tr(context,'Rooms')),trailing:IconButton(onPressed:addRoom,icon:const Icon(Icons.add))),
+    ListTile(title:Text(tr(context,'Rooms')),trailing:IconButton(tooltip:tr(context,"Add room"),onPressed:addRoom,icon:const Icon(Icons.add))),
     for(final room in rooms) Card(child:ListTile(title:Text(room['label'] as String),onTap:() async {roomId=room['id'] as String; await reload();})),
     const Divider(),Text(tr(context,'Photos')),
     Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:() => photo(ImageSource.camera),icon:const Icon(Icons.camera_alt),label:Text(tr(context,'Camera'))),

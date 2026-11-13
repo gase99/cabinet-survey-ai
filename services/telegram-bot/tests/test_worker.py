@@ -99,3 +99,21 @@ def test_unavailable_file_retries_then_reports_failure(tmp_path):
             assert worker.db.execute('SELECT state FROM deliveries').fetchone()[0]=='done'
             worker.db.close()
     asyncio.run(run())
+
+
+def test_cancelled_cached_delivery_is_not_sent_after_unlink(tmp_path):
+    cfg=config(tmp_path)
+    path=cfg.export_root/'drawing.pdf';path.write_bytes(b'%PDF-fixture')
+    def transport(request):
+        assert request.url.host=='backend', 'Revoked delivery must not call Telegram'
+        return httpx.Response(200,json={'status':'cancelled'} if '/internal/deliveries/' in request.url.path else [])
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            worker=Worker(cfg,client)
+            worker.db.execute('INSERT INTO deliveries(id,payload) VALUES (?,?)',('revoked',json.dumps(
+                {'delivery_id':'revoked','file_path':str(path),'chat_id':'123'})))
+            worker.db.commit()
+            await worker.process_deliveries()
+            assert worker.db.execute('SELECT state FROM deliveries').fetchone()[0]=='done'
+            worker.db.close()
+    asyncio.run(run())

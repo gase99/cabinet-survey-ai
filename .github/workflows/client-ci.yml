@@ -1,9 +1,7 @@
 name: client-ci
 on:
   push:
-    paths: ['apps/client/**', 'scripts/bootstrap-client.sh', '.github/workflows/client-ci.yml']
   pull_request:
-    paths: ['apps/client/**', 'scripts/bootstrap-client.sh', '.github/workflows/client-ci.yml']
   workflow_dispatch:
 jobs:
   flutter:
@@ -11,6 +9,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record exact tested commit
+        run: git rev-parse HEAD
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -19,16 +21,26 @@ jobs:
         with:
           channel: stable
           cache: true
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.11'}
+      - name: Install real acceptance backend
+        run: pip install -r backend/requirements.txt playwright
       - name: Generate platform runners and SQLite browser assets
         run: bash scripts/bootstrap-client.sh
       - run: python ../../scripts/ci-command.py flutter analyze --no-fatal-infos
         working-directory: apps/client
       - run: python ../../scripts/ci-command.py flutter test --reporter expanded --timeout 30s
         working-directory: apps/client
+      - name: Complete SQLite and real HTTP workflow acceptance
+        run: python ../../scripts/ci-command.py python ../../scripts/run-client-acceptance.py --native
+        working-directory: apps/client
       - name: Browser geometry, networking and form tests
         run: python ../../scripts/ci-command.py flutter test --platform chrome test/survey_test.dart test/api_test.dart test/form_test.dart --timeout 30s
         working-directory: apps/client
-      - run: python ../../scripts/ci-command.py flutter build web --release
+      - run: python ../../scripts/ci-command.py flutter build web --release --no-web-resources-cdn
+        working-directory: apps/client
+      - name: Production Web in real Chrome
+        run: python ../../scripts/ci-command.py python ../../scripts/run-client-acceptance.py --browser
         working-directory: apps/client
       - run: python ../../scripts/ci-command.py flutter build apk --debug --dart-define=API_BASE_URL=https://configure-api-host.invalid/api/v1/
         working-directory: apps/client
@@ -39,6 +51,7 @@ jobs:
         with:
           name: client-development-builds
           path: |
+            apps/client/acceptance-browser
             apps/client/build/web
             apps/client/build/app/outputs/flutter-apk/app-debug.apk
             apps/client/build/app/outputs/bundle/release/app-release.aab

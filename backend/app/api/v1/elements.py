@@ -21,16 +21,11 @@ def get_wall_and_project(wall_id: str, db, user):
 @router.post("/walls/{wall_id}/elements", response_model=ElementOut, status_code=201)
 def create_element(wall_id: str, payload: ElementCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     wall, room, project = get_wall_and_project(wall_id, db, user)
-    # Validate bounds
-    if payload.offset_mm + payload.width_mm > wall.length_mm:
-        raise HTTPException(status_code=400, detail=f"Element exceeds wall length {wall.length_mm} mm")
-    # Overlap check (simple)
-    existing = db.query(Element).filter(Element.wall_id == wall_id).all()
-    for e in existing:
-        a_end = e.offset_mm + e.width_mm
-        b_end = payload.offset_mm + payload.width_mm
-        if not (b_end <= e.offset_mm or payload.offset_mm >= a_end):
-            raise HTTPException(status_code=400, detail=f"Element overlaps with existing element {e.id} ({e.label})")
+    from app.api.v1.sync import check_element
+    try:
+        check_element(payload.model_dump(),wall,db)
+    except ValueError as error:
+        raise HTTPException(400,str(error))
     elem = Element(
         wall_id=wall_id,
         label=payload.label,

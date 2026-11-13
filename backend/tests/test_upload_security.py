@@ -33,3 +33,8 @@ def test_upload_size_read_is_bounded(client,auth_headers,monkeypatch):
 
 def test_recovery_does_not_claim_unsent_email(client):
     assert client.post('/api/v1/auth/password-recovery?email=fixture@example.com').status_code==503
+
+
+def test_request_ingress_rejects_oversized_json_before_parsing(client):
+    response=client.post('/api/v1/auth/login',content=b'x'*(1024*1024+1),headers={'Content-Type':'application/json'})
+    assert response.status_code==413

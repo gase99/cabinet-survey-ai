@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.db_models import User, Project, Room, Wall
+from app.models.db_models import User, Project, Room, Wall, Element
 from app.schemas.wall import WallCreate, WallUpdate, WallOut
 from app.services.audit import log_audit
 
@@ -69,6 +69,17 @@ def update_wall(wall_id: str, payload: WallUpdate, db: Session = Depends(get_db)
     data = payload.model_dump(exclude_unset=True)
     if data.get("review_status") == "approved" and set(data) != {"review_status"}:
         raise HTTPException(status_code=422, detail="Approval must be a separate explicit operation")
+    merged={c.name:getattr(wall,c.name) for c in wall.__table__.columns}
+    merged.update(data)
+    try:
+        WallCreate.model_validate(merged)
+    except ValueError:
+        raise HTTPException(422,"Invalid wall dimensions")
+    if "review_status" in data and data["review_status"] is None:
+        raise HTTPException(422,"review_status cannot be null")
+    for element in db.query(Element).filter_by(wall_id=wall.id).all():
+        if element.offset_mm+element.width_mm>merged['length_mm'] or (element.sill_mm or 0)+(element.height_mm or 0)>merged['height_mm']:
+            raise HTTPException(400,"Wall resize would place an element outside bounds")
     # If approved value edited, reset to needs_review unless explicitly approved
     editing_approved = wall.review_status == "approved" and any(k in data for k in ["length_mm","height_mm","start_x_mm","start_y_mm","end_x_mm","end_y_mm"])
     for k, v in data.items():
