@@ -8,7 +8,7 @@ candidate review with source regions, approval controls, export downloads and Te
 These are not a claim of full platform acceptance. See `../../docs/project-status.md`.
 
 ## Build toolchain
-Install current stable Flutter with Android SDK and Java 17. From repository root:
+Install current stable Flutter with Android SDK and Java 21. From repository root:
 
 ```sh
 bash scripts/bootstrap-client.sh

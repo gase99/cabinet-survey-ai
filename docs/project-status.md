@@ -13,10 +13,11 @@ store publication or live provider/bot verification is claimed.
 | SQLite migrations | Initial upgrade, schema comparison, downgrade | Passed in backend tests |
 | PostgreSQL migrations | GitHub backend CI run 43435156620 | Upgrade/check/downgrade/re-upgrade passed |
 | Flutter analysis | GitHub client run 43435156646, commit c5cdc96 | Passed |
-| Flutter tests | Same run | Passed |
-| Chrome-platform tests | Same run: geometry, API transport and form lifecycle | Passed |
+| Flutter tests | Same run | **12 passed** |
+| Chrome-platform tests | Same run: geometry, API transport and form lifecycle | **8 passed** |
 | Production Web compilation | Same run | Passed |
-| Android APK / AAB | Same run | In progress at this checkpoint; not yet verified |
+| Android debug APK | Same run | Build passed |
+| Android release AAB | Same run | Failed: lint uses Java 21 API on Java 17; CI runtime corrected to Java 21, rerun pending |
 | Docker/runtime deployment | Toolchain unavailable locally | Not executed |
 
 Run links: https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156646
@@ -63,7 +64,7 @@ and https://github.com/gase99/cabinet-survey-ai/actions/runs/43435156620 .
 - Generated test exports are ignored and isolated in temporary test directories.
 
 ## Remaining acceptance blockers
-- Android builds/artifacts pending; browser/device interactive workflows not accepted.
+- Android AAB rerun/artifacts pending; browser/device interactive workflows not accepted.
 - Crop/rotate/perspective correction, OCR preprocessing, voice recording/transcription,
   full sketch correction/import workflow and some diagnostic translations incomplete.
 - Full drawing drag/snapping editor, persistent undo stacks and server version restore
@@ -92,3 +93,11 @@ subsystems exist, but no group satisfies every production acceptance criterion y
 2. Test complete Web/Android workflows, camera, secure storage and SQLite persistence.
 3. Complete offline lifecycle, scanner/editor and multilingual export limitations.
 4. Complete auth/security hardening, live integrations and recovery drill before RC.
+
+## Android toolchain correction
+AAB failure was `image_picker_android:lintVitalAnalyzeRelease` with
+`NoSuchMethodError: java.util.List.removeLast()`. The generated current Android
+lint toolchain requires Java 21. CI now uses Java 21; lint is not disabled.
+Artifact upload is now `always()` so successful Web/APK outputs survive a later
+failed gate. Previous runs skipped artifact upload after AAB failure. AAB success
+must be verified from the corrected run, not inferred from the Java change.

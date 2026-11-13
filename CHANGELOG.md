@@ -24,3 +24,4 @@
 - Require explicitly measured wall heights and validate project-customer ownership on reassignment.
 - Clean-venv verification: 79 backend tests and 4 worker tests pass; dependency check clean.
 - Remote Chrome-platform tests and production Web build pass; Android build status remains pending.
+- Android debug APK compilation passed. AAB lint exposed a Java 17/21 toolchain mismatch; CI now uses Java 21 without disabling lint. Corrected AAB run pending.
