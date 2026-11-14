@@ -2,6 +2,22 @@
 
 # Changelog
 
+## Unreleased — voice intake phase (2026-11-14)
+- Deterministic conversational Persian measurement parser: word numerals, compound
+  values ("سه متر و بیست سانتی‌متر" → 3200 mm), scale words, correction intent,
+  per-value kind inference, conflict surfacing. Never invents values or coordinates.
+- Provider-independent speech-to-text ingestion: configurable OpenAI-compatible HTTPS
+  endpoint, fail-closed 503 without credentials, typed-text fallback preserved.
+- `/ai/transcription` audio path completed: signature-sniffed content validation,
+  bounded upload size, explicit external-transmission disclosure in the response.
+- Multi-room export: PDF/PNG exports now include **every room** of a project
+  (previously only the first room); per-room geometry/approval errors carry labels.
+- Flutter voice-intake screen: transcript analysis, proposal cards with spoken source
+  quotes and conflict highlighting, confirm-first prefill of the wall form
+  (`voice_ai`/`needs_review`), corrections through the normal edit path preserving
+  revision history. On-device audio capture is deferred to a later phase.
+- ADR-007 records the local-first, three-source and human-confirmation decisions.
+
 ## Unreleased
 - Implement FastAPI domain APIs, deterministic geometry, export services and backend tests.
 - Enforce room ownership on SVG access and authenticated Telegram worker access.

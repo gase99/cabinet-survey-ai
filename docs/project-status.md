@@ -2,6 +2,31 @@
 
 # Engineering status — 2026-11-13
 
+## Voice intake phase update — 2026-11-14 (PR #2, commit c813b7b + client phase)
+
+Scope: phase 1 of the approved local-first/voice decision set (ADR-007). Physical
+device acceptance is still **NOT PERFORMED**; the PR is **not merged**.
+
+- Backend: deterministic conversational Persian parser
+  (`app/domain/spoken_measurements.py`), provider-neutral STT with fail-closed
+  configuration (`app/ai/speech.py`), completed `/ai/transcription` audio path with
+  content-sniffing, size bound and external-transmission disclosure, merged
+  `parse_measurements_any` used by `/ai/parse-text`.
+- Exports: **every room** is now exported (per-room geometry 400 with room label,
+  per-room approval 409 with room label). This fixes the previously reported
+  first-room-only limitation.
+- Client: voice-intake screen (typed/pasted transcript phase 1), pure proposal
+  mapping with conflict surfacing, confirm-first prefill of the existing wall form
+  (`voice_ai` source, `needs_review`), corrections through the normal edit path that
+  preserves revision history.
+- On-device audio capture (RECORD_AUDIO) is deliberately deferred to a later phase.
+- Local verification (Python 3.14 container, deps shadowed from site-packages):
+  parser 21/21; transcription/STT/export suites pass except PNG steps that require
+  the `_rl_renderPM` C backend which is pinned in CI. Full suite: 127 passed,
+  3 skipped, 4 PNG-environment failures.
+- Flutter/Dart verification happens in GitHub Actions `android-ci` (analyze + test);
+  no local Dart toolchain is available on this machine.
+
 ## Release acceptance verification update — 2026-11-13
 
 **NOT READY; PR #1 remains draft and must not be merged.** See

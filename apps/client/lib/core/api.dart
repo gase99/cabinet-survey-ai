@@ -55,6 +55,22 @@ class Api {
     final response = await _send(method, path, body);
     return response.body.isEmpty ? null : jsonDecode(utf8.decode(response.bodyBytes));
   }
+  /// Deterministic text/spoken-transcript parsing (`ai/parse-text`, form body).
+  /// The reply only ever contains proposals; approval stays a user action.
+  Future<Json> parseText(String text) async {
+    final request = http.Request('POST', base.resolve('ai/parse-text'))
+      ..headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.body = 'text=${Uri.encodeQueryComponent(text)}&language_hint=fa,en';
+    final response = await http.Response.fromStream(
+      await client.send(request).timeout(const Duration(seconds: 30)));
+    if (response.statusCode != 200) {
+      String message = 'HTTP ${response.statusCode}';
+      try { message = '${(jsonDecode(response.body) as Json)['detail']}'; } catch (_) {}
+      throw ApiException(response.statusCode, message);
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Json;
+  }
   Future<Uint8List> bytes(String path) async => (await _send('GET', path, null)).bodyBytes;
   Future<Json> sketch(Uint8List bytes, String filename) async {
     final mime = bytes.length >= 8 && bytes[0] == 137 && bytes[1] == 80

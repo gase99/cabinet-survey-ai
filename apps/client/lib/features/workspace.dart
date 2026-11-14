@@ -6,9 +6,11 @@ import '../core/controller.dart';
 import '../core/store.dart';
 import '../core/l10n.dart';
 import '../domain/survey.dart';
+import '../domain/voice.dart';
 import 'drawing.dart';
 import 'sketch_review.dart';
 import 'measurement_form.dart';
+import 'voice_intake.dart';
 
 class Workspace extends StatefulWidget {
   final SurveyController controller;
@@ -85,17 +87,21 @@ class _WorkspaceState extends State<Workspace> {
     if(value==null) return;
     await run(() => c.store.save('room', {...value,'id':uuid.v4(),'project_id':projectId,'room_type':'irregular'}));
   }
-  Future<void> editWall([Json? wall]) async {
+  Future<void> editWall([Json? wall, Json? prefill]) async {
+    // A voice proposal prefills the same confirm-first form: the user still
+    // reviews, completes and saves, so nothing skips explicit confirmation.
+    final spoken = wall == null && prefill != null;
     final value=await form(wall==null?'Add wall':'Review',{
       'label':'Label','length_mm':'Length (mm)','height_mm':'Height (mm)',
       'start_x_mm':'Start X (mm)','start_y_mm':'Start Y (mm)',
-      'end_x_mm':'End X (mm)','end_y_mm':'End Y (mm)'},initial:wall,
+      'end_x_mm':'End X (mm)','end_y_mm':'End Y (mm)'},initial:wall??prefill,
       numeric:{'length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm'},
       signed:{'start_x_mm','start_y_mm','end_x_mm','end_y_mm'});
     if(value==null) return;
     await run(() async {
       final next={...?wall,...value,'id':wall?['id']??uuid.v4(),'room_id':roomId,
-        'source':wall?['source']??'manual','review_status':wall==null?'approved':'needs_review'};
+        'source':wall?['source']??(spoken?'voice_ai':'manual'),
+        'review_status':wall==null?(spoken?'needs_review':'approved'):'needs_review'};
       final candidate=SurveyWall.fromJson(next);
       if(candidate.length>50000 || candidate.height>10000) throw const FormatException('Wall dimensions exceed supported bounds');
       if(wall!=null) {undo.add({'kind':'wall','before':wall,'after':next}); redo.clear();}
@@ -152,6 +158,39 @@ class _WorkspaceState extends State<Workspace> {
       final saved=await const DocumentSaver().save(name:'survey-${project['id']}.$format',bytes:bytes,pdf:format=='pdf');
       if(saved && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tr(context,'Document saved'))));
     });
+  }
+  /// Voice intake: transcript -> proposals -> confirm-first wall form.
+  /// Statements prefill a new wall (needs_review); corrections target an
+  /// existing wall through the normal edit path, preserving revision history.
+  Future<void> voiceIntake() async {
+    if (roomId == null) {
+      if (rooms.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'Add room'))));
+        return;
+      }
+      final selected = await showDialog<String>(context:context,builder:(d) => SimpleDialog(
+        title:Text(tr(context,'Select a room for the spoken measurements')),
+        children:[for(final room in rooms) SimpleDialogOption(
+          onPressed:() => Navigator.pop(d,room['id'] as String),child:Text(room['label'] as String))]));
+      if(selected==null) return;
+      setState(() => roomId=selected);
+      await reload();
+    }
+    final proposal=await Navigator.push<VoiceProposal>(context,
+      MaterialPageRoute<VoiceProposal>(builder:(_) => VoiceIntake(api:c.api)));
+    if(proposal==null || proposal.wallField==null) return;
+    if(!proposal.isCorrection) { await editWall(null,proposal.prefill()); return; }
+    final targets=walls;
+    if(targets.isEmpty) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'No walls yet'))));
+      return;
+    }
+    Json? target=targets.length==1?targets.first:await showDialog<Json>(context:context,builder:(d) => SimpleDialog(
+      title:Text(tr(context,'Select the wall to correct')),
+      children:[for(final wall in targets) SimpleDialogOption(
+        onPressed:() => Navigator.pop(d,wall),child:Text('${wall['label']} · ${wall[proposal.wallField]} mm'))]));
+    if(target==null) return;
+    await editWall(target,proposal.prefill());
   }
   Future<void> telegram() async {
     await run(() async {
@@ -243,6 +282,7 @@ class _WorkspaceState extends State<Workspace> {
       OutlinedButton(onPressed:() => run(() => c.store.save('project',{...project,'status':project['status']=='archived'?'draft':'archived'})),
         child:Text(tr(context,project['status']=='archived'?'Restore':'Archive'))),
       OutlinedButton(onPressed:() => export(project),child:Text(tr(context,'Export'))),
+      OutlinedButton(onPressed:() => voiceIntake(),child:Text(tr(context,'Voice intake'))),
       OutlinedButton(onPressed:c.api.token==null?null:() => sendTelegram(project),child:const Text('Telegram'))]),
     Text('${project['site_notes']??''}'),
     ListTile(title:Text(tr(context,'Rooms')),trailing:IconButton(tooltip:tr(context,"Add room"),onPressed:addRoom,icon:const Icon(Icons.add))),

@@ -26,6 +26,15 @@ const translations = <String,String>{
   'AI candidates require review; no dimensions are inferred from pixels.':
     'پیشنهادهای هوش مصنوعی نیاز به بازبینی دارند؛ هیچ ابعادی از پیکسل‌ها استنباط نمی‌شود.',
   'Select a wall to edit its measurements':'برای ویرایش اندازه‌ها یک دیوار را انتخاب کنید',
+  'Voice intake':'برداشت صوتی',
+  'Voice intake hint':'اندازه‌ها را به فارسی بنویسید یا متن تبدیل‌شدهٔ گفتار را بچسبانید؛ مانند «طول دیوار سه متر و بیست سانتی‌متر».',
+  'Transcript':'متن گفتار', 'Analyze':'تحلیل', 'Apply':'اعمال', 'Correction':'اصلاح',
+  'No measurements detected':'اندازه‌ای تشخیص داده نشد',
+  'AI proposals require review; nothing becomes a measurement without your confirmation.':
+    'پیشنهادهای هوش مصنوعی نیاز به بازبینی دارند؛ بدون تأیید شما هیچ مقداری اندازه نمی‌شود.',
+  'Conflicting spoken values; resolve manually.':'مقادیر صوتی متضاد؛ تعارض را به‌صورت دستی رفع کنید.',
+  'Select a room for the spoken measurements':'اتاق موردنظر برای اندازه‌های صوتی را انتخاب کنید',
+  'Select the wall to correct':'دیواری که باید اصلاح شود را انتخاب کنید',
 };
 String tr(BuildContext context, String text) =>
     Localizations.localeOf(context).languageCode == 'fa' ? translations[text] ?? text : text;
