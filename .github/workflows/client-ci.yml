@@ -37,8 +37,25 @@ jobs:
         run: python ../../scripts/run-client-acceptance.py --native
         working-directory: apps/client
       - name: Android native validation and lint
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain 2>&1 | tee "$RUNNER_TEMP/android-native.log"
         working-directory: apps/client/android
+      - name: Preserve native diagnostics on GitHub API (log download may be unavailable)
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'android-native.log'
+          text=p.read_text(errors='replace') if p.exists() else 'Native gate failed before Gradle logging'
+          lines=[line for line in text.splitlines() if any(word in line.lower() for word in ['error','failed','failure','exception','caused by','what went wrong','e: '])]
+          detail='\n'.join(lines)[-24000:]
+          print(detail)
+          for offset in range(0,len(detail),3000):
+              chunk=detail[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error::'+chunk)
+          PY
       - name: Build installable debug APK
         run: flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1/
         working-directory: apps/client
