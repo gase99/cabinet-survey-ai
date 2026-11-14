@@ -42,7 +42,7 @@
   لغو انتخاب موفقیت جعلی نیست؛ مجوز گستردهٔ حافظه لازم نیست. camera/gallery از picker
   سیستم استفاده می‌کنند و permission اضافی CAMERA در manifest اعلام نشده است.
 - CI برای تحلیل Dart، تست واحد، HTTP/SQLite واقعی روی VM، lint/unit بومی، APK، AAB و
-  آزمون emulator با بستن/بازکردن پروسه تنظیم شد. این‌ها نتیجهٔ آیندهٔ CI هستند، نه ادعای اجرای محلی.
+  آزمون emulator با بستن/بازکردن پروسه تنظیم شد. این دروازه‌ها در CI اجرا شدند؛ نتیجهٔ دقیق HEAD در بخش ۵ ثبت شده است.
 
 ### راه‌اندازی و مستندات
 - اسکریپت ساخت محیط خصوصی بدون چاپ/بازنویسی secret، اسکریپت ساخت APK/AAB و اسکریپت
@@ -112,18 +112,31 @@ bash scripts/build-android.sh release
 | نصب تمیز وابستگی‌های Python و `pip check` | موفق؛ ناسازگاری گزارش نشد |
 | `backend`: `../.venv/bin/python -m pytest -q` | **101 passed، 3 skipped، 2 warnings** پس از تغییرات |
 | worker: `PYTHONPATH=. ../../.venv/bin/python -m pytest -q` | **6 passed، 1 warning**؛ HTTP mock، نه تلگرام واقعی |
-| `python -m pytest tests -q` در ریشه | **7 passed**؛ لغو وب، manifest/signing، تنظیم webhook و عدم افشای توکن |
+| `python -m pytest tests -q` در ریشه | **9 passed**؛ لغو وب، manifest/signing، YAML، تنظیم webhook، عدم افشای توکن و حفظ .env |
 | compileall، lint بحرانی Python، XML، shell syntax و diff whitespace | موفق |
 | checksum wrapper Gradle | با checksum رسمی Gradle 8.12 تطبیق داده شد |
-| Flutter analyze/test و Gradle/Kotlin/Android build | در این sandbox اجرا نشد؛ ابزار موجود نیست؛ workflow آمادهٔ اجراست |
-| نصب/تعامل emulator یا گوشی، picker و دوربین | تأیید نشده؛ آزمون emulator در CI اضافه شده ولی شاهد اجرای آن در این گزارش نیست |
+| Flutter analyze/test، native unit/lint و ساخت APK/AAB | **PASS در GitHub Actions** روی HEAD `1654566c716a4c56a471c390711c4f9cb6dd3ff6`؛ ابزار در sandbox محلی موجود نبود |
+| emulator اندروید API 35 | **PASS در CI**؛ ورود آفلاین فارسی، ساخت پروژه، force-stop و بازکردن دوباره با SQLite واقعی |
+| گوشی فیزیکی، تعامل picker و دوربین | تأیید نشده؛ emulator جای پذیرش دستگاه فیزیکی را نمی‌گیرد |
 | Docker/TLS/وب‌هوک/ارسال واقعی ربات | اجرا نشده؛ توکن/دامنه/سرور ارائه نشده |
-| PostgreSQL migration/concurrency | در این اجرای محلی skip؛ CI جداگانه تنظیم شده، نتیجهٔ HEAD جدید باید ثبت شود |
+| PostgreSQL migration/concurrency و بازیابی disposable | **PASS در CI همان HEAD**؛ upgrade/check/downgrade، هم‌زمانی و بازیابی آزمایشگاهی |
 
 برای جمع‌آوری شواهد **همان HEAD جاری** پس از اجرای CI:
 `python scripts/check-head-ci.py gase99/cabinet-survey-ai docs/evidence/android-head-checks.json`.
-این اسکریپت دیگر نتیجهٔ PR #1 را جایگزین برنچ جاری نمی‌کند. تا ثبت نتیجهٔ جدید، وضعیت
-بیلد/دستگاه «تأیید نشده» است. فایل‌های شواهد قدیمی فقط سابقه‌اند.
+این اسکریپت دیگر نتیجهٔ PR #1 را جایگزین برنچ جاری نمی‌کند. شواهد همان HEAD کد در
+[`evidence/android-head-checks.json`](evidence/android-head-checks.json) ثبت شده: هر پنج job موفق.
+این فایل گزارش، بعد از آن commit مستندسازی شده و نباید به‌عنوان SHA اجرای دوبارهٔ CI معرفی شود.
+
+اجرای موفق کد `1654566`:
+- [Android APK/AAB و emulator](https://github.com/gase99/cabinet-survey-ai/actions/runs/43606213998)
+- [Backend و PostgreSQL](https://github.com/gase99/cabinet-survey-ai/actions/runs/43606214171)
+- [Worker](https://github.com/gase99/cabinet-survey-ai/actions/runs/43606214046)
+
+Artifact عمومی CI: `android-ci-builds-not-for-publication`، حجم گزارش‌شده ۱۱۸٬۳۹۶٬۹۸۰ بایت،
+انقضا ۱۲ فوریهٔ ۲۰۲۷. در لینک execution بالا قابل دریافت است؛ فایل باینری بزرگ وارد Git نشده.
+خطاهای واقعیِ پیداشده در مسیر ساخت اصلاح شدند: colon بدون quote در YAML، محل درست
+`includeSubdomains` روی تک‌تک domainها، و optional Play Core در R8. هیچ lint detector یا
+warning عمومی برای سبز کردن CI غیرفعال نشد؛ قاعدهٔ R8 فقط Play Core استفاده‌نشده را پوشش می‌دهد.
 
 ## ۶. آنچه هنوز تکمیل یا تأیید نشده است
 
@@ -143,6 +156,6 @@ bash scripts/build-android.sh release
 - worker تک‌replica و at-least-once است؛ لغو ارسال، ارسال در جریان را پس نمی‌گیرد.
 - هاست واقعی، کلید امضای مالک، توکن ربات، مجوز provider پولی و پذیرش دستگاه/فروشگاه لازم است.
 
-**جمع‌بندی:** وب از مسیر جاری حذف شده، سورس و تنظیمات Android و مسیر ساخت/امضا و راهنمای
-ربات آماده شده‌اند. مرحلهٔ بعد اجرای CI/نصب روی دستگاه و پذیرش مالک است؛ رفع بلاکرهای
+**جمع‌بندی:** وب از مسیر جاری حذف شده، ساخت Android و آزمون پایهٔ emulator در CI موفق است
+و راهنمای ربات آماده شده است. مرحلهٔ بعد پذیرش روی دستگاه فیزیکی، امضا/هاست مالک و استقرار واقعی است؛ رفع بلاکرهای
 محصول بالا فاز جداگانه‌ای است که مطابق دستورالعمل ریپو به تأیید شما نیاز دارد.
