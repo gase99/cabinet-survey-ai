@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:uuid/uuid.dart';
 import '../domain/survey.dart';
 
@@ -15,7 +13,7 @@ class LocalStore {
   final String owner;
   LocalStore(this.db, this.owner);
   static Future<Database> open({DatabaseFactory? testFactory, String path = 'cabinet_survey.sqlite'}) async {
-    final factory = testFactory ?? (kIsWeb ? databaseFactoryFfiWeb : databaseFactory);
+    final factory = testFactory ?? databaseFactory;
     return factory.openDatabase(path, options: OpenDatabaseOptions(
       version: 1, onCreate: (db, version) async {
         await db.execute('CREATE TABLE records (owner TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,id))');

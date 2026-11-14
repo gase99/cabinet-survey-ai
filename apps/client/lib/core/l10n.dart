@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 const translations = <String,String>{
+  'Document saved':'سند ذخیره شد',
   'Cabinet Survey AI':'برداشت کابینت', 'Sign in':'ورود', 'Register':'ثبت‌نام',
   'Email':'ایمیل', 'Password':'رمز عبور', 'Name':'نام',
   'Capture offline':'برداشت آفلاین', 'Projects':'پروژه‌ها', 'Search':'جستجو',

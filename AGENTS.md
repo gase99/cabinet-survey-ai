@@ -1,7 +1,7 @@
 # Agent instructions
 
 ## Product invariants
-- Platforms: Android + Web. Client: Flutter/Dart; backend: FastAPI.
+- Platforms: Android only. Client: Flutter/Dart; backend: FastAPI.
 - Support Persian RTL and English.
 - Persist all dimensions as integer millimetres; convert only at UI/API boundaries.
 - AI output is untrusted proposal data. Confidence is never approval.
@@ -14,7 +14,7 @@
 
 ## Workflow
 - Read relevant docs before changing architecture.
-- Work through roadmap phases autonomously; ask only for genuine blockers, requirement changes or external authorization.
+- Work one roadmap phase at a time; stop for user approval at phase boundaries.
 - Add tests for every behavior change; geometry changes require golden fixtures.
 - Preserve original observations and append revisions; never silently overwrite approved measurements.
 - Do not claim a feature is implemented based on a stub, mock or documentation.
@@ -22,7 +22,7 @@
 - Ask before changing approved product decisions or introducing paid infrastructure/providers.
 
 ## Repository map
-- `apps/client`: Flutter Android/Web client.
+- `apps/client`: Flutter Android client.
 - `backend/app`: FastAPI API and domain services.
 - `services/telegram-bot`: Telegram integration worker.
 - `packages`: shared contracts and geometry.

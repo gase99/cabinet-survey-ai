@@ -11,7 +11,7 @@ from app.services.audit import log_audit
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 def require_worker_secret(provided: str | None) -> None:
-    configured = settings.telegram_webhook_secret
+    configured = settings.telegram_worker_secret
     if not configured:
         raise HTTPException(status_code=503, detail="Telegram worker authentication is not configured")
     if not provided or not secrets.compare_digest(configured, provided):
@@ -40,7 +40,7 @@ def create_pairing_code(db: Session = Depends(get_db), user: User = Depends(get_
 def verify_pairing(payload: dict, db: Session = Depends(get_db), x_webhook_secret: str | None = Header(default=None)):
     """
     Called by Telegram bot worker after user sends /pair CODE in Telegram.
-    Secured via webhook secret if configured.
+    Secured via the independent worker credential.
     Payload: {code, telegram_chat_id, telegram_username}
     """
     require_worker_secret(x_webhook_secret)
@@ -88,7 +88,7 @@ def send_via_telegram(payload: dict, db: Session = Depends(get_db), user: User =
     """
     Trigger delivery of an export job to linked Telegram account.
     This endpoint queues delivery; worker or direct Bot API call handles sending.
-    Requires TELEGAM_BOT_TOKEN server-side; never expose to client.
+    The independent worker owns the bot token; this API only queues delivery.
     """
     if not user.telegram_chat_id:
         raise HTTPException(status_code=400, detail="Telegram not linked. Create pairing code first.")
@@ -127,7 +127,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db), x_te
 # Internal worker polling endpoint: pending deliveries
 @router.get("/internal/pending-deliveries")
 def pending_deliveries(x_webhook_secret: str | None = Header(default=None), db: Session = Depends(get_db)):
-    # Secured by webhook secret
+    # Secured by the API/worker shared credential
     require_worker_secret(x_webhook_secret)
     pendings = db.query(TelegramDelivery).filter(TelegramDelivery.status == "pending").limit(20).all()
     result = []

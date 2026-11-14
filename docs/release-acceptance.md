@@ -1,3 +1,5 @@
+> **Historical PR #1 record:** the Android-only decision and current verification are in [android-delivery-fa.md](android-delivery-fa.md). Results below refer to the old Android/Web branch, not this revision.
+
 # Release acceptance — NOT READY / DO NOT MERGE PR #1
 
 Statuses: **PASS** = scoped evidence exists; **FAIL** = requirement demonstrably not

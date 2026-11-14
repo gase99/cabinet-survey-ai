@@ -1,3 +1,5 @@
+> **Historical PR #1 record:** the Android-only decision and current verification are in [android-delivery-fa.md](android-delivery-fa.md). Results below refer to the old Android/Web branch, not this revision.
+
 # Release security review — in progress, NOT release approval
 
 Baseline: `ca5bc6aedb652b268a03dd34438fe995f22b6d13`, PR #1. Review is of

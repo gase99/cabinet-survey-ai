@@ -17,7 +17,7 @@ final controllerProvider = ChangeNotifierProvider.family<SurveyController, Datab
 class SurveyController extends ChangeNotifier {
   final Database db;
   final Api api;
-  final FlutterSecureStorage secure = const FlutterSecureStorage();
+  final FlutterSecureStorage secure = const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
   String owner = 'device-local';
   bool offline = false;
   String? email;
@@ -33,7 +33,7 @@ class SurveyController extends ChangeNotifier {
       final me = await api.request('GET','auth/me') as Json;
       owner = me['id'] as String;
       email = address;
-      // Refresh token never enters SQLite or a browser URL.
+      // Refresh token stays in Android secure storage, never in the survey database.
       await secure.write(key: 'refresh', value: tokens['refresh_token'] as String);
       await secure.write(key: 'owner', value: owner);
       await secure.write(key: 'email', value: address);

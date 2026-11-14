@@ -4,7 +4,7 @@
 - Password hashing with a modern adaptive algorithm; short-lived access tokens and rotating refresh tokens.
 - Role-based authorization and project ownership checks.
 - AI provider keys, database credentials, JWT secrets and Telegram bot tokens are backend-only secrets.
-- Never put secrets in Flutter assets, public web bundles, Git history, logs, screenshots or fixtures.
+- Never put secrets in Flutter assets, Android bundles, Git history, logs, screenshots or fixtures.
 - Validate file type, size, image dimensions and content; scan uploads where deployment supports it.
 - Restrict access to customer names, phone numbers, addresses and site images.
 - Define deletion/export/retention policies before production.
@@ -35,3 +35,8 @@ New passwords use bcrypt-SHA256 prehashing so long/Persian UTF-8 passwords are n
 silently truncated by raw bcrypt's 72-byte limit. Legacy bcrypt hashes still verify
 for compatibility; plan explicit credential rotation/reset before production,
 particularly for any previously overlong passwords. No stored hash is discarded.
+
+## Android-only update
+Browser storage/CORS is no longer applicable. Release network policy rejects HTTP;
+Android cloud backup is disabled. Local survey SQLite/photos remain unencrypted.
+System document picker avoids broad storage permissions. See android-delivery-fa.md.

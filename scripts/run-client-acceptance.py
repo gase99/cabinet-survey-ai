@@ -9,9 +9,11 @@ import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
 mode=sys.argv[1] if len(sys.argv)>1 else '--native'
+if mode != '--native':
+    raise SystemExit('Only Android/native Dart acceptance is supported; web is cancelled')
 with tempfile.TemporaryDirectory(prefix='cabinet-acceptance-') as temp:
     env={**os.environ,'DATABASE_URL':f'sqlite:///{temp}/server.sqlite',
-         'AI_PROVIDER':'disabled','TELEGRAM_BOT_TOKEN':'',
+         'AI_PROVIDER':'disabled','TELEGRAM_WORKER_SECRET':'',
          'EXPORT_STORAGE_DIR':f'{temp}/exports','ASSET_STORAGE_DIR':f'{temp}/assets',
          'PYTHONPATH':os.pathsep.join([str(ROOT/'backend'),str(ROOT/'scripts')])}
     with open(f'{temp}/server.log','w+') as log:
@@ -25,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='cabinet-acceptance-') as temp:
                 except OSError:time.sleep(.2)
             else:raise RuntimeError('Acceptance API not ready')
             command=['flutter','test','test/workflow_acceptance_test.dart',
-                '--dart-define=ACCEPTANCE_API_URL=http://127.0.0.1:8173/api/v1/','--reporter','expanded'] if mode=='--native' else [sys.executable,str(ROOT/'scripts/browser_acceptance.py')]
+                '--dart-define=ACCEPTANCE_API_URL=http://127.0.0.1:8173/api/v1/','--reporter','expanded']
             subprocess.run(command,cwd=ROOT/'apps/client',env=os.environ,check=True)
         except Exception:
             log.flush();log.seek(0);print(log.read());raise

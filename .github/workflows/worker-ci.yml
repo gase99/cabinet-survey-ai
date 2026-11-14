@@ -1,4 +1,6 @@
 name: worker-ci
+permissions:
+  contents: read
 on:
   push:
   pull_request:

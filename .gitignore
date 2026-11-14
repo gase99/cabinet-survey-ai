@@ -28,9 +28,14 @@ build/
 backend/uploads/
 backend/exports/
 var/data/
-# Generated platform runners and browser SQLite runtime (bootstrap-client.sh)
-apps/client/android/
+# Android platform sources are committed. Keep the cancelled web target out.
 apps/client/web/
+
+# Android owner signing and installation-specific endpoint configuration
+apps/client/android/key.properties
+apps/client/config/api.json
+*.jks
+*.keystore
 
 **/var/data/
 apps/client/acceptance-browser/

@@ -39,13 +39,13 @@ def test_postgres_concurrent_measurements_never_silently_overwrite():
 
 
 def test_postgres_pairing_code_consumption_is_atomic(monkeypatch):
-    monkeypatch.setattr(settings,'telegram_webhook_secret','fixture-worker-secret-not-real')
+    monkeypatch.setattr(settings,'telegram_worker_secret','fixture-worker-secret-not-real')
     with TestClient(app) as client:
         headers=account(client)
         code=client.post('/api/v1/telegram/pairing-code',headers=headers).json()['code']
         def verify(chat):
             with TestClient(app) as worker:
-                return worker.post('/api/v1/telegram/verify-pairing',headers={'X-Webhook-Secret':settings.telegram_webhook_secret},
+                return worker.post('/api/v1/telegram/verify-pairing',headers={'X-Webhook-Secret':settings.telegram_worker_secret},
                     json={'code':code,'telegram_chat_id':chat}).status_code
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             statuses=list(pool.map(verify,['123','456']))

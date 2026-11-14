@@ -3,7 +3,7 @@ from app.core.config import settings
 
 @pytest.fixture(autouse=True)
 def worker_secret(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_webhook_secret", "test-only-worker-secret")
+    monkeypatch.setattr(settings, "telegram_worker_secret", "test-only-worker-secret")
 
 WORKER_HEADERS = {"X-Webhook-Secret": "test-only-worker-secret"}
 
@@ -85,7 +85,7 @@ def test_worker_endpoints_fail_closed(client, monkeypatch, endpoint):
         url = f"/api/v1/telegram/{endpoint}"
         return client.get(url) if endpoint.endswith("pending-deliveries") else client.post(url, json={})
     assert invoke().status_code == 401
-    monkeypatch.setattr(settings, "telegram_webhook_secret", None)
+    monkeypatch.setattr(settings, "telegram_worker_secret", None)
     assert invoke().status_code == 503
 
 

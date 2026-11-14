@@ -1,4 +1,6 @@
 name: backend-ci
+permissions:
+  contents: read
 on:
   push:
   pull_request:

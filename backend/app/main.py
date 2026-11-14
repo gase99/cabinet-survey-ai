@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 from sqlalchemy import text
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import router as api_router
 from app.core.database import init_db, engine
@@ -26,15 +25,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list + ["*"] if settings.app_env == "development" else settings.cors_origin_list,
-    allow_credentials=settings.app_env != "development",
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# Native Android does not need browser CORS; internal worker routes stay behind the gateway.
 app.add_middleware(RequestLimitMiddleware)
 
 app.include_router(api_router)

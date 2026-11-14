@@ -1,40 +1,39 @@
-# Operations
+# Operations — Android API and Telegram worker
 
 ## Services
-- API: stateless FastAPI service.
-- Database: PostgreSQL with persistent volume and scheduled backups.
-- Worker: background jobs for AI, export and Telegram delivery.
-- Telegram bot: independently restartable container/process.
-- Web client: static build served over HTTPS.
+- FastAPI API and PostgreSQL; SQLite is local to the Android app or disposable tests.
+- Independent Telegram webhook/delivery worker, one replica and persistent retry state.
+- nginx **API/webhook gateway**, not a static web-client host. Android is installed as APK/AAB.
+- AI requests and PDF/PNG generation currently run in the API process, not a separate AI/export worker.
 
-## Production requirements
-Health/readiness probes and redacted structured logs; error reporting without customer content or secrets; controlled database migrations; backup retention and restore drills; resource limits, rate limits and upload quotas; monitoring for failed sync/AI/export/Telegram jobs; documented rollback and incident response.
+## Deployment
+Use `deploy/compose.yml`; no web build is required. Generate a private `.env` with
+`scripts/init-environment.py`, then fill the bot token and actual HTTPS webhook domain.
+Compose constructs the internal PostgreSQL URL using service host `db`. The gateway
+binds to host `127.0.0.1:8080`; an owner-managed TLS reverse proxy must forward to it.
+Do not expose PostgreSQL, API container ports or worker ports directly to the Internet.
+Gateway denies backend internal Telegram routes; the worker reaches them on the Docker network.
 
-## Pre-release deployment configuration
-`deploy/compose.yml` defines PostgreSQL, API, independent Telegram worker and nginx.
-It is configuration, not deployment evidence. Build the Web bundle first. Configure
-`.env` with private credentials and an internal `DATABASE_URL` referring to `db`,
-not localhost. The nginx listener is bound to host loopback intentionally: place an
-operator-managed HTTPS reverse proxy in front of it. No TLS certificates are bundled.
-Never expose PostgreSQL or the internal worker endpoints directly to the Internet.
+See [Persian setup guide](telegram-setup-fa.md) for exact commands, distinct credentials,
+webhook registration, pairing, verification, logs, backups and troubleshooting.
+Health endpoints are liveness checks, not a full production readiness/observability suite.
 
-Persist PostgreSQL, `/data/assets`, `/data/exports` and `/data/worker`. Container UID
-10001 must own writable volumes; do not make them world-writable. Restrict and encrypt
-backups because they contain customer data and chat linkage. The worker needs only
-read access to exports. Deployment scripts never purchase resources or mutate a
-production database in this development session.
+## Persistence and recovery
+Persist PostgreSQL, `/data/assets`, `/data/exports` and `/data/worker`. API/worker run
+as UID 10001; writable volumes need appropriate ownership, not world-wide write access.
+Worker mounts exports read-only. Protect and encrypt backups: they contain customer
+records, photos, documents and chat linkage. Keep the provider encryption master key
+separate from the encrypted database, with an owner-controlled recovery procedure.
 
-## Backup/restore procedure (drill still required)
-1. Pause write traffic and worker ingestion or use a documented consistent snapshot.
-2. Produce a PostgreSQL custom-format `pg_dump -Fc` using a least-privilege backup
-   account; snapshot asset/export/worker volumes consistently with database state.
-3. Encrypt backups, record checksums and migration revision, and retain off-host
-   copies according to the owner's customer-data retention policy.
-4. Restore to an isolated database with `pg_restore --no-owner`, restore volumes and
-   permissions, then validate Alembic revision, project counts and sample hashes.
-5. Start API and one worker against the restored copy with outbound Telegram disabled
-   to avoid replaying customer deliveries. Test auth, geometry and export downloads.
-6. Record recovery point/time and evidence before approving production readiness.
+1. Pause writes/worker ingestion or take a documented consistent snapshot.
+2. `pg_dump -Fc` plus a consistent snapshot of assets, exports and worker state; record
+   Alembic revision and checksums. Encrypt and retain an off-host copy.
+3. Restore with `pg_restore --no-owner` into an isolated environment; restore permissions.
+4. Verify counts, sample hashes, migrations and downloads before switching traffic.
+   Prevent external Telegram replay while testing a restored pending-delivery queue.
+5. Record recovery point/time and actual results. Owner production recovery is not yet verified.
 
-This procedure is documented, not a verified recovery drill. Existing databases
-created by `create_all` predate migrations; do not automatically stamp or discard them.
+Never blindly stamp or discard a legacy `create_all` database. Schema changes require a
+reviewed Alembic migration. Do not automatically downgrade a production database as a
+rollback; compatibility and data loss must be assessed first. Retention/cleanup for
+exports, photos, pairing codes and worker retry payloads remains an open release task.

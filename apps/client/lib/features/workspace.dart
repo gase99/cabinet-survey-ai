@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import '../services/document_saver.dart';
 import '../core/controller.dart';
 import '../core/store.dart';
 import '../core/l10n.dart';
@@ -149,8 +149,8 @@ class _WorkspaceState extends State<Workspace> {
       if(!['pdf','png'].contains(format) || !['A4','A3'].contains(layout)) throw const FormatException('Choose pdf/png and A4/A3');
       final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout}) as Json;
       final bytes=await c.api.bytes('exports/${job['id']}/download');
-      await FileSaver.instance.saveFile(name:'survey-${project['id']}',bytes:bytes,ext:format,
-        mimeType:format=='pdf'?MimeType.pdf:MimeType.png);
+      final saved=await const DocumentSaver().save(name:'survey-${project['id']}.$format',bytes:bytes,pdf:format=='pdf');
+      if(saved && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tr(context,'Document saved'))));
     });
   }
   Future<void> telegram() async {

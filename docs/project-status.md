@@ -1,3 +1,5 @@
+> **Historical PR #1 record:** the Android-only decision and current verification are in [android-delivery-fa.md](android-delivery-fa.md). Results below refer to the old Android/Web branch, not this revision.
+
 # Engineering status — 2026-11-13
 
 ## Release acceptance verification update — 2026-11-13

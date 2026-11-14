@@ -1,5 +1,6 @@
-# Run from repo root: docker compose --env-file .env -f deploy/compose.yml up --build -d
-# Put an operator-managed HTTPS reverse proxy in front of nginx and worker ingress.
+# docker compose --env-file .env -f deploy/compose.yml up --build -d
+# Android APK is installed separately. This stack serves API + bot, NOT a web app.
+name: cabinet-survey
 services:
   db:
     image: postgres:16-alpine
@@ -16,34 +17,47 @@ services:
   api:
     build: ../backend
     restart: unless-stopped
-    env_file: ../.env
     environment:
       APP_ENV: production
-      DATABASE_URL: ${DATABASE_URL:?Set internal PostgreSQL connection URL}
+      DATABASE_URL: postgresql+psycopg://cabinet:${POSTGRES_PASSWORD}@db:5432/cabinet_survey
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      TELEGRAM_WORKER_SECRET: ${TELEGRAM_WORKER_SECRET:?Set API-worker secret}
       EXPORT_STORAGE_DIR: /data/exports
       ASSET_STORAGE_DIR: /data/assets
     volumes: [exports:/data/exports, assets:/data/assets]
     depends_on:
       db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
   telegram:
     build: ../services/telegram-bot
     restart: unless-stopped
-    env_file: ../.env
     environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set bot token}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Set independent ingress secret}
+      BACKEND_WORKER_SECRET: ${TELEGRAM_WORKER_SECRET:?Set shared API-worker secret}
       BACKEND_URL: http://api:8000/api/v1/
-      BACKEND_WORKER_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Set backend worker secret}
-      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_INGRESS_SECRET:?Set independent Telegram ingress secret}
       EXPORT_STORAGE_DIR: /data/exports
+      WORKER_DATABASE: /data/worker/worker.sqlite
     volumes: [exports:/data/exports:ro, worker:/data/worker]
-    depends_on: [api]
-  web:
+    depends_on:
+      api: {condition: service_healthy}
+  gateway:
     image: nginx:stable-alpine
     restart: unless-stopped
     ports: ['127.0.0.1:8080:80']
-    volumes:
-      - ../apps/client/build/web:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on: [api,telegram]
+    volumes: ['./gateway.conf:/etc/nginx/conf.d/default.conf:ro']
+    depends_on:
+      api: {condition: service_healthy}
+      telegram: {condition: service_healthy}
 volumes:
   postgres:
   exports:
