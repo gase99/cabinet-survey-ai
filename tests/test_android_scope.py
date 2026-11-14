@@ -59,6 +59,9 @@ def test_release_never_falls_back_to_debug_signing():
     assert 'signingConfig = signingConfigs.getByName("debug")' not in gradle
     assert 'if (hasReleaseSigning) signingConfig' in gradle
     assert 'minSdk = 24' in gradle and 'targetSdk = 36' in gradle
+    rules = (CLIENT / 'android/app/proguard-rules.pro').read_text()
+    assert '-dontwarn com.google.android.play.core.**' in rules
+    assert '-ignorewarnings' not in rules
     ignored = (ROOT / '.gitignore').read_text()
     assert 'apps/client/android/key.properties' in ignored
     assert '*.jks' in ignored and '*.keystore' in ignored
