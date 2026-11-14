@@ -15,6 +15,55 @@ class TextProvider(Protocol):
 class AIUnavailableError(RuntimeError):
     pass
 
+# ---------- Deterministic merged parser (labeled + spoken transcripts) ----------
+
+def parse_measurements_any(text: str) -> dict[str, Any]:
+    """Deterministic extraction for labeled text and spoken transcripts, merged.
+
+    Labeled evidence ("دیوار A: ۳۲۰۰ میلی‌متر") wins on overlap because it is
+    the most explicit form; spoken observations are kept when they do not
+    duplicate a labeled match. No value is ever invented by either path.
+    """
+    from app.domain.spoken_measurements import parse_spoken_measurements, normalize as spoken_normalize
+
+    normalized = spoken_normalize(text)
+    spoken = parse_spoken_measurements(normalized)
+    labeled = parse_text_measurements_deterministic(normalized)
+    labeled_spans = [(match.start(), match.end()) for match in MEASUREMENT_RE.finditer(normalized)]
+
+    def overlaps_labeled(span: list[int]) -> bool:
+        return any(not (span[1] <= start or span[0] >= end) for start, end in labeled_spans)
+
+    observations = list(labeled["observations"]) + [
+        observation for observation in spoken["observations"]
+        if not overlaps_labeled(observation["source_span"])
+    ]
+    ambiguities: list[dict[str, Any]] = []
+    seen_ambiguities: set[tuple[str, str]] = set()
+    # The labeled format ("label: value unit") only matches colon-separated
+    # text; its absence-of-structure complaints are noise when the spoken path
+    # already extracted proposals from the same transcript.
+    labeled_noise = {"no_structured_extraction", "no_measurements"}
+    labeled_ambiguities = [ambiguity for ambiguity in labeled["ambiguities"]
+                           if ambiguity.get("type") not in labeled_noise or not observations]
+    for ambiguity in [*labeled_ambiguities, *spoken["ambiguities"]]:
+        key = (ambiguity.get("type", ""), ambiguity.get("detail", ""))
+        if key not in seen_ambiguities:
+            seen_ambiguities.add(key)
+            ambiguities.append(ambiguity)
+    questions: list[str] = []
+    for question in [*labeled["clarification_questions"], *spoken["clarification_questions"]]:
+        if question not in questions:
+            questions.append(question)
+    return {
+        "observations": observations,
+        "ambiguities": ambiguities,
+        "clarification_questions": questions,
+        "provider": "deterministic_local",
+        "disclaimer": labeled["disclaimer"],
+    }
+
+
 # ---------- Deterministic explicit-text parser ----------
 
 # Regex for measurements like "Wall A: 3200 mm" or Persian "دیوار A: ۳۲۰۰ میلی‌متر"

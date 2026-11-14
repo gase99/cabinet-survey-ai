@@ -4,10 +4,11 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import User, AIUsageLog
 from app.core.config import settings
-from app.ai.provider import get_ai_provider, AIUnavailableError, parse_text_measurements_deterministic
+from app.ai.provider import get_ai_provider, AIUnavailableError, parse_measurements_any
+from app.ai import speech
 from datetime import datetime, timezone
 import time
-from app.services.uploads import validated_upload
+from app.services.uploads import validated_upload, validated_audio_upload
 from app.services.provider_config import configured_provider
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -21,7 +22,7 @@ async def parse_text(
 ):
     start = time.time()
     try:
-        result = parse_text_measurements_deterministic(text)
+        result = parse_measurements_any(text)
         # log usage
         db.add(AIUsageLog(user_id=user.id, provider="deterministic_local", success=True))
         db.commit()
@@ -58,7 +59,9 @@ async def sketch_analysis(
         db.commit()
         raise HTTPException(status_code=500, detail="AI analysis failed")
 
-# Transcription proxy (voice -> text) — uses same deterministic if no provider
+# Transcription proxy (voice -> text). Speech recognition is provider-neutral and
+# fail-closed: without configured credentials audio returns 503 and typed text
+# remains available. A transcript only ever yields proposals, never approvals.
 @router.post("/transcription")
 async def transcription(
     file: UploadFile = File(None),
@@ -67,13 +70,26 @@ async def transcription(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # If file provided, would transcribe via AI provider; for now return placeholder
-    if file:
-        data = await file.read()
-        if len(data) > 10*1024*1024:
-            raise HTTPException(status_code=400, detail="Audio file too large")
-        raise HTTPException(status_code=503, detail="Audio transcription provider is not configured")
+    if file is not None:
+        data, mime = await validated_audio_upload(file)
+        try:
+            provider = speech.get_stt_provider()
+            transcript = await provider.transcribe(data, mime, language_hint=language_hint)
+        except speech.STTUnavailableError as e:
+            db.add(AIUsageLog(user_id=user.id, provider=settings.stt_provider, success=False, error=str(e)))
+            db.commit()
+            raise HTTPException(status_code=503, detail=str(e))
+        result = parse_measurements_any(transcript)
+        db.add(AIUsageLog(user_id=user.id, provider=settings.stt_provider, success=True))
+        db.commit()
+        return {
+            "transcript": transcript,
+            "extraction": result,
+            "external_transmission": True,
+            "notice": "Audio was transmitted to the configured external speech recognition service. "
+                      "Every extracted value below is a proposal and requires your explicit approval.",
+        }
     if text:
-        result = parse_text_measurements_deterministic(text)
-        return {"transcript": text, "extraction": result}
+        result = parse_measurements_any(text)
+        return {"transcript": text, "extraction": result, "external_transmission": False}
     raise HTTPException(status_code=400, detail="Provide audio file or text")

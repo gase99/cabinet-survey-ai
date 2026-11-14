@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # Shared API/worker credential; NOT Telegram's webhook header secret.
     telegram_worker_secret: str | None = None
 
+    # Provider-independent speech recognition; disabled unless explicitly configured.
+    stt_provider: str = "disabled"
+    stt_base_url: str | None = None
+    stt_api_key: str | None = None
+    stt_model: str | None = "whisper-1"
+    audio_max_bytes: int = 10 * 1024 * 1024
+
     upload_max_bytes: int = 15 * 1024 * 1024
     upload_allowed_types: str = "image/jpeg,image/png,image/webp,application/pdf"
     rate_limit_auth_per_minute: int = 10

@@ -22,15 +22,19 @@ def output_file(extension, output_path):
     return str(root / f'{uuid.uuid4().hex}.{extension}')
 
 
-def generate_project_pdf(project_title, customer_name, plan_svg, elevations,
-                         dimension_annotations, layout='A4', output_path=None):
+def pdf_views(plan_svg, elevations):
+    """Backward-compatible view list: one plan page plus one page per elevation."""
+    return ([('Top-down plan', plan_svg)] if plan_svg else []) + [
+        (f'Wall elevation {wall_id}', svg) for wall_id, svg in elevations.items()]
+
+
+def render_views_pdf(project_title, customer_name, views, layout='A4', output_path=None):
+    """Render one vector PDF page per (title, svg) view, in the given order."""
     path = output_file('pdf', output_path)
     width, height = PAGE_SIZES[layout]
     temporary = path + '.partial'
     try:
         pdf = canvas.Canvas(temporary, pagesize=(width,height), invariant=1)
-        views = ([('Top-down plan',plan_svg)] if plan_svg else []) + [
-            (f'Wall elevation {wall_id}',svg) for wall_id,svg in elevations.items()]
         for index,(title,svg) in enumerate(views):
             pdf.setFont('Helvetica-Bold',14)
             pdf.drawString(15*mm,height-20*mm,project_title[:100])
@@ -58,20 +62,25 @@ def generate_project_pdf(project_title, customer_name, plan_svg, elevations,
     return path
 
 
-def generate_project_png(project_title, dimension_annotations, plan_svg,
-                         elevations=None, layout='A4', output_path=None):
+def generate_project_pdf(project_title, customer_name, plan_svg, elevations,
+                         dimension_annotations, layout='A4', output_path=None):
+    return render_views_pdf(project_title, customer_name,
+                            pdf_views(plan_svg if plan_svg else '', elevations or {}),
+                            layout=layout, output_path=output_path)
+
+
+def render_views_png(project_title, views, layout='A4', output_path=None):
     path = output_file('png', output_path)
     width,height = PNG_SIZES[layout]
     image = Image.new('RGB',(width,height),'white')
     draw = ImageDraw.Draw(image)
     draw.text((100,60),project_title,fill='black',font_size=32)
     draw.text((100,110),'Dimensions in mm | fitted view, not fixed scale',fill='black',font_size=24)
-    views = ([plan_svg] if plan_svg else []) + list((elevations or {}).values())
     # PNG is a single sheet; PDF retains a separate vector page for each view.
     columns = 1 if len(views)<=2 else 2
     rows = max(1,(len(views)+columns-1)//columns)
     cell_w,cell_h = (width-200)//columns,(height-300)//rows
-    for index,svg in enumerate(views):
+    for index,(title,svg) in enumerate(views):
         drawing = svg2rlg(io.BytesIO(svg.encode('utf-8')))
         if drawing is None:
             raise ValueError('Invalid drawing SVG')
@@ -89,3 +98,9 @@ def generate_project_png(project_title, dimension_annotations, plan_svg,
     finally:
         if os.path.exists(temporary): os.unlink(temporary)
     return path
+
+
+def generate_project_png(project_title, dimension_annotations, plan_svg,
+                         elevations=None, layout='A4', output_path=None):
+    return render_views_png(project_title, pdf_views(plan_svg if plan_svg else '', elevations or {}),
+                            layout=layout, output_path=output_path)

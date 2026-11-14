@@ -52,3 +52,54 @@ def test_export_rejects_invalid_or_unapproved_geometry(client, auth_headers):
     assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==201
     client.put(f'/api/v1/walls/{ids[0]}',headers=auth_headers,json={'length_mm':2500})
     assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==400
+
+
+def _rect_room(client, auth_headers, project_id, label, x=0, y=0, w=4000, h=3000, sketch_wall=False):
+    room = client.post(f"/api/v1/projects/{project_id}/rooms", headers=auth_headers,
+                       json={"label": label, "room_type": "rectangular"}).json()["id"]
+    corners = [(x, y, x + w, y), (x + w, y, x + w, y + h), (x + w, y + h, x, y + h), (x, y + h, x, y)]
+    for index, (sx, sy, ex, ey) in enumerate(corners):
+        source = "sketch_ai" if (index == 0 and sketch_wall) else "manual"
+        client.post(f"/api/v1/rooms/{room}/walls", headers=auth_headers, json={
+            "label": f"{label}-W{index}", "length_mm": (w if index % 2 == 0 else h),
+            "height_mm": 2700, "start_x_mm": sx, "start_y_mm": sy, "end_x_mm": ex, "end_y_mm": ey,
+            "source": source})
+    return room
+
+
+def test_export_includes_every_room_not_only_the_first(client, auth_headers, tmp_path):
+    import re
+    project = client.post("/api/v1/projects", headers=auth_headers,
+                          json={"title": "Two rooms"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    _rect_room(client, auth_headers, project, "Living", x=5000)
+
+    response = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                           json={"format": "pdf", "layout": "A4"})
+    assert response.status_code == 201
+    download = client.get(f"/api/v1/exports/{response.json()['id']}/download", headers=auth_headers)
+    assert download.status_code == 200
+    pdf = download.content
+    # Two plans plus eight wall elevations: every room must appear.
+    pages = len(re.findall(rb"/Type\s*/Page(?![s])", pdf))
+    assert pages == 10, f"expected 10 pages (2 rooms x (plan + 4 elevations)), got {pages}"
+
+    png_response = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                               json={"format": "png", "layout": "A3"})
+    assert png_response.status_code == 201
+    png_download = client.get(f"/api/v1/exports/{png_response.json()['id']}/download",
+                              headers=auth_headers)
+    assert png_download.status_code == 200
+    assert len(png_download.content) > 1000
+
+
+def test_export_fails_when_any_room_has_unapproved_measurements(client, auth_headers):
+    project = client.post("/api/v1/projects", headers=auth_headers,
+                          json={"title": "Approval across rooms"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    # One AI-sourced wall in the second room is unapproved: the whole export fails.
+    _rect_room(client, auth_headers, project, "Living", x=5000, sketch_wall=True)
+    response = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                           json={"format": "pdf", "layout": "A4"})
+    assert response.status_code == 409
+    assert "Living" in response.json()["detail"]

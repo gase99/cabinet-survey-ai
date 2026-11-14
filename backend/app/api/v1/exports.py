@@ -6,7 +6,7 @@ from app.core.deps import get_current_user
 from app.models.db_models import User, Project, Room, Wall, Element, ExportJob
 from app.schemas.drawing import ExportRequest
 from app.services.geometry_service import walls_and_elements_from_room
-from app.services.export_service import generate_project_pdf, generate_project_png
+from app.services.export_service import render_views_pdf, render_views_png
 from app.services.audit import log_audit
 import os
 
@@ -26,18 +26,34 @@ def create_export(project_id: str, payload: ExportRequest, db: Session = Depends
     if payload.layout not in ("A3","A4"):
         raise HTTPException(status_code=400, detail="Invalid layout")
 
-    room = db.query(Room).filter(Room.project_id == project_id).first()
-    if not room:
+    rooms = db.query(Room).filter(Room.project_id == project_id).order_by(Room.created_at, Room.id).all()
+    if not rooms:
         raise HTTPException(status_code=400, detail="Project has no rooms to export")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
-    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
-    geom = walls_and_elements_from_room(room, walls, elements)
 
-    if geom.errors:
-        raise HTTPException(status_code=400, detail={"message": "Invalid geometry", "errors": [e.code for e in geom.errors]})
-    if any(e.review_status != "approved" for e in [*walls, *elements]):
-        raise HTTPException(status_code=409, detail="Explicit approval is required for every wall and element")
-    if not payload.include_plan and not payload.include_elevations:
+    # Every room is exported, not just the first one. A geometry error or an
+    # unapproved measurement in ANY included room fails the whole export.
+    plan_parts: list[tuple[str, str]] = []
+    elevation_parts: list[tuple[str, str]] = []
+    for room in rooms:
+        walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
+        elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
+        geom = walls_and_elements_from_room(room, walls, elements)
+        if geom.errors:
+            raise HTTPException(status_code=400, detail={"message": "Invalid geometry",
+                "errors": [e.code for e in geom.errors], "room": room.label})
+        unapproved = [entity.label for entity in [*walls, *elements]
+                      if entity.review_status != "approved"]
+        if unapproved:
+            raise HTTPException(status_code=409,
+                detail=f"Explicit approval is required for every wall and element (room '{room.label}')")
+        if payload.include_plan and geom.svg_plan:
+            plan_parts.append((f"Plan — {room.label}", geom.svg_plan))
+        if payload.include_elevations:
+            for wall_id, svg in geom.elevations.items():
+                elevation_parts.append((f"{room.label} · Wall elevation {wall_id}", svg))
+
+    views = plan_parts + elevation_parts
+    if not views:
         raise HTTPException(status_code=422, detail="Select at least one drawing view")
 
     job = ExportJob(project_id=project_id, owner_id=user.id, format=payload.format, layout=payload.layout, status="processing")
@@ -56,20 +72,16 @@ def create_export(project_id: str, payload: ExportRequest, db: Session = Depends
             customer_name = None
 
         if payload.format == "pdf":
-            path = generate_project_pdf(
+            path = render_views_pdf(
                 project_title=project.title,
                 customer_name=customer_name,
-                plan_svg=geom.svg_plan if payload.include_plan else "",
-                elevations=geom.elevations if payload.include_elevations else {},
-                dimension_annotations=geom.dimension_annotations,
+                views=views,
                 layout=payload.layout,
             )
         else:
-            path = generate_project_png(
+            path = render_views_png(
                 project_title=project.title,
-                dimension_annotations=geom.dimension_annotations,
-                plan_svg=geom.svg_plan if payload.include_plan else "",
-                elevations=geom.elevations if payload.include_elevations else {},
+                views=views,
                 layout=payload.layout,
             )
         job.file_path = path
