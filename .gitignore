@@ -20,3 +20,23 @@ build/
 .vscode/
 .DS_Store
 *.log
+
+# Local runtime data (never commit customer data)
+*.db
+*.db-shm
+*.db-wal
+backend/uploads/
+backend/exports/
+var/data/
+# Android platform sources are committed. Keep the cancelled web target out.
+apps/client/web/
+
+# Android owner signing and installation-specific endpoint configuration
+apps/client/android/key.properties
+apps/client/config/api.json
+*.jks
+*.keystore
+
+**/var/data/
+apps/client/acceptance-browser/
+**/test-results/
