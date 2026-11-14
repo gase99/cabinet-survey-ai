@@ -44,8 +44,9 @@ def test_android_sources_manifest_and_wrapper_are_committed():
     for variant in ['debug', 'profile']:
         config = ET.parse(CLIENT / f'android/app/src/{variant}/res/xml/network_security_config.xml').getroot()
         for domain in config.findall('domain-config'):
-            assert domain.attrib['includeSubdomains'] == 'false'
-            assert {node.text for node in domain.findall('domain')} == {'10.0.2.2', 'localhost', '127.0.0.1'}
+            domains = domain.findall('domain')
+            assert {node.text for node in domains} == {'10.0.2.2', 'localhost', '127.0.0.1'}
+            assert all(node.attrib['includeSubdomains'] == 'false' for node in domains)
     wrapper = CLIENT / 'android/gradle/wrapper/gradle-wrapper.jar'
     assert wrapper.read_bytes()[:2] == b'PK'
     assert hashlib.sha256(wrapper.read_bytes()).hexdigest() == '2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046'
