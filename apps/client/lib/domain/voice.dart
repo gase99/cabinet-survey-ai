@@ -36,9 +36,10 @@ class VoiceProposal {
 
   /// Confirm-first prefill: the target form still requires the user to review,
   /// complete and save. Voice-sourced values never skip that form.
-  Json prefill() => {
-    if (wallField != null) wallField!: valueMm,
-  };
+  Json prefill() {
+    final field = wallField;
+    return field == null ? <String, dynamic>{} : <String, dynamic>{field: valueMm};
+  }
 }
 
 /// Deterministic client-side mapping of the backend extraction payload.

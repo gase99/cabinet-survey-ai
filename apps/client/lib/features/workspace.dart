@@ -172,24 +172,25 @@ class _WorkspaceState extends State<Workspace> {
         title:Text(tr(context,'Select a room for the spoken measurements')),
         children:[for(final room in rooms) SimpleDialogOption(
           onPressed:() => Navigator.pop(d,room['id'] as String),child:Text(room['label'] as String))]));
-      if(selected==null) return;
+      if(!mounted || selected==null) return;
       setState(() => roomId=selected);
       await reload();
+      if(!mounted) return;
     }
     final proposal=await Navigator.push<VoiceProposal>(context,
       MaterialPageRoute<VoiceProposal>(builder:(_) => VoiceIntake(api:c.api)));
-    if(proposal==null || proposal.wallField==null) return;
+    if(!mounted || proposal==null || proposal.wallField==null) return;
     if(!proposal.isCorrection) { await editWall(null,proposal.prefill()); return; }
     final targets=walls;
     if(targets.isEmpty) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'No walls yet'))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'No walls yet'))));
       return;
     }
     Json? target=targets.length==1?targets.first:await showDialog<Json>(context:context,builder:(d) => SimpleDialog(
       title:Text(tr(context,'Select the wall to correct')),
       children:[for(final wall in targets) SimpleDialogOption(
-        onPressed:() => Navigator.pop(d,wall),child:Text('${wall['label']} · ${wall[proposal.wallField]} mm'))]));
-    if(target==null) return;
+        onPressed:() => Navigator.pop(d,wall),child:Text('${wall['label']} · ${wall[proposal.wallField!]} mm'))]));
+    if(!mounted || target==null) return;
     await editWall(target,proposal.prefill());
   }
   Future<void> telegram() async {

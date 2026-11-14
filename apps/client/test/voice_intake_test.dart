@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:cabinet_survey_ai/core/api.dart';
+import 'package:cabinet_survey_ai/domain/survey.dart';
 import 'package:cabinet_survey_ai/domain/voice.dart';
 import 'package:cabinet_survey_ai/features/voice_intake.dart';
 
