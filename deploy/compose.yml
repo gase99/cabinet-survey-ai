@@ -1,0 +1,51 @@
+# Run from repo root: docker compose --env-file .env -f deploy/compose.yml up --build -d
+# Put an operator-managed HTTPS reverse proxy in front of nginx and worker ingress.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cabinet_survey
+      POSTGRES_USER: cabinet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U cabinet -d cabinet_survey']
+      interval: 5s
+      retries: 10
+  api:
+    build: ../backend
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set internal PostgreSQL connection URL}
+      EXPORT_STORAGE_DIR: /data/exports
+      ASSET_STORAGE_DIR: /data/assets
+    volumes: [exports:/data/exports, assets:/data/assets]
+    depends_on:
+      db: {condition: service_healthy}
+  telegram:
+    build: ../services/telegram-bot
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      BACKEND_URL: http://api:8000/api/v1/
+      BACKEND_WORKER_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Set backend worker secret}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_INGRESS_SECRET:?Set independent Telegram ingress secret}
+      EXPORT_STORAGE_DIR: /data/exports
+    volumes: [exports:/data/exports:ro, worker:/data/worker]
+    depends_on: [api]
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports: ['127.0.0.1:8080:80']
+    volumes:
+      - ../apps/client/build/web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api,telegram]
+volumes:
+  postgres:
+  exports:
+  assets:
+  worker:

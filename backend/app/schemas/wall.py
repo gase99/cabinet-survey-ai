@@ -1,0 +1,41 @@
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+class WallCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    length_mm: int = Field(strict=True, ge=1, le=50000, description="Length in mm")
+    height_mm: int = Field(strict=True, ge=1, le=10000, description="Explicitly measured height; never assumed")
+    start_x_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
+    start_y_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
+    end_x_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
+    end_y_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
+    source: str = Field(default="manual", pattern="^(manual|sketch_ai|voice_ai|import)$")
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+class WallUpdate(BaseModel):
+    label: str | None = None
+    length_mm: int | None = Field(strict=True, default=None, ge=1, le=50000)
+    height_mm: int | None = Field(strict=True, default=None, ge=1, le=10000)
+    start_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
+    start_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
+    end_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
+    end_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
+    review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete|approved)$")
+
+class WallOut(BaseModel):
+    id: str
+    room_id: str
+    label: str
+    length_mm: int
+    height_mm: int
+    start_x_mm: int
+    start_y_mm: int
+    end_x_mm: int
+    end_y_mm: int
+    review_status: str
+    source: str
+    confidence: float | None
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = {"from_attributes": True}

@@ -20,3 +20,18 @@ build/
 .vscode/
 .DS_Store
 *.log
+
+# Local runtime data (never commit customer data)
+*.db
+*.db-shm
+*.db-wal
+backend/uploads/
+backend/exports/
+var/data/
+# Generated platform runners and browser SQLite runtime (bootstrap-client.sh)
+apps/client/android/
+apps/client/web/
+
+**/var/data/
+apps/client/acceptance-browser/
+**/test-results/
