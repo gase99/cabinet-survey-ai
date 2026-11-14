@@ -16,6 +16,13 @@ with sync_playwright() as p:
         for language in ['fa','en']:
             context=browser.new_context(viewport={'width':1440,'height':1000})
             page=context.new_page()
+            def expect_project(name):
+                # Flutter Web merges a ListTile's title and subtitle into one
+                # semantics node, so the saved project is a button named
+                # "<title> <status> · v<version>", never a text node equal to the
+                # title alone. The generated title is unique, so requiring the
+                # card's name to start with it still asserts exact persistence.
+                expect(page.get_by_role('button',name=re.compile(rf'^{re.escape(name)}(?: |$)'))).to_be_visible(timeout=30000)
             def open_app():
                 # A Flutter Web shell never reaches Playwright's network-idle heuristic:
                 # the engine and its service workers keep background activity alive, so
@@ -46,13 +53,13 @@ with sync_playwright() as p:
                 field.fill(title)
                 page.screenshot(path=str(out/f'{language}-form.png'))
                 page.get_by_role('button',name=save,exact=True).click()
-                expect(page.get_by_text(title,exact=True)).to_be_visible(timeout=30000)
+                expect_project(title)
                 page.screenshot(path=str(out/f'{language}-saved.png'))
                 page.close()
                 page=context.new_page()
                 open_app()
                 page.get_by_role('button',name=capture,exact=True).click()
-                expect(page.get_by_text(title,exact=True)).to_be_visible(timeout=30000)
+                expect_project(title)
                 page.screenshot(path=str(out/f'{language}-reopened.png'))
                 results.append({'language':language,'status':'PASS','scope':'Production Chrome UI local project capture, API-unavailable save, tab close/reopen recovery. Shell reload used network; not an offline shell boot claim.'})
             except Exception:
