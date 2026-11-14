@@ -42,7 +42,7 @@ jobs:
       - name: Build installable debug APK
         run: flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1/
         working-directory: apps/client
-      - name: Compile release AAB with disposable CI signing: NOT for publication
+      - name: "Compile release AAB with disposable CI signing: NOT for publication"
         run: |
           keytool -genkeypair -keystore "$RUNNER_TEMP/ci-only.jks" -storepass ci-only-password \
             -keypass ci-only-password -alias ci-only -keyalg RSA -keysize 2048 -validity 2 \
