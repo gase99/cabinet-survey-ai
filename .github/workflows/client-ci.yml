@@ -61,14 +61,29 @@ jobs:
         working-directory: apps/client
       - name: "Compile release AAB with disposable CI signing: NOT for publication"
         run: |
+          set -o pipefail
           keytool -genkeypair -keystore "$RUNNER_TEMP/ci-only.jks" -storepass ci-only-password \
             -keypass ci-only-password -alias ci-only -keyalg RSA -keysize 2048 -validity 2 \
             -dname "CN=Disposable CI Build, O=Cabinet Survey, C=US"
           export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/ci-only.jks"
           export ANDROID_KEYSTORE_PASSWORD=ci-only-password ANDROID_KEY_PASSWORD=ci-only-password ANDROID_KEY_ALIAS=ci-only
-          flutter build appbundle --release --dart-define=API_BASE_URL=https://api.example.invalid/api/v1/
+          flutter build appbundle --release --dart-define=API_BASE_URL=https://api.example.invalid/api/v1/ 2>&1 | tee "$RUNNER_TEMP/android-release.log"
           rm -f "$RUNNER_TEMP/ci-only.jks"
         working-directory: apps/client
+      - name: Preserve release diagnostics through GitHub API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          text=(root/'android-release.log').read_text(errors='replace') if (root/'android-release.log').exists() else 'Release gate failed before logging'
+          detail=text[-27000:]
+          print(detail)
+          for offset in range(0,len(detail),3000):
+              chunk=detail[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error::'+chunk)
+          PY
       - name: Record artifact limitations
         run: |
           mkdir -p /tmp/android-artifacts
