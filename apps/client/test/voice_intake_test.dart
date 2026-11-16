@@ -56,7 +56,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Apply').first);
     await tester.pumpAndSettle();
     expect(applied!.valueMm, 3200);
-    expect(applied!.wallField, 'length_mm');
+    expect(applied.wallField, 'length_mm');
     expect(find.byType(VoiceIntake), findsNothing);
   });
 
