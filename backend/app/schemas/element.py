@@ -34,6 +34,8 @@ class ElementOut(BaseModel):
     sill_mm: int | None
     depth_mm: int | None
     review_status: str
+    approved_by: str | None = None
+    approved_at: datetime | None = None
     source: str
     confidence: float | None
     version: int

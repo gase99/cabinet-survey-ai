@@ -66,4 +66,20 @@ void main() {
     await db.close();
   });
 
+  test('manual wall and element saves are never auto-approved and missing dimensions mark incomplete',() async {
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
+    final store=LocalStore(db,'one');
+    await store.save('wall',{'id':'w1','room_id':'r1','label':'Wall A','length_mm':3000,'height_mm':2700,'start_x_mm':0,'start_y_mm':0,'end_x_mm':3000,'end_y_mm':0,'source':'manual','review_status':'approved'});
+    await store.save('element',{'id':'e1','wall_id':'w1','label':'Pipe','kind':'gas_pipe','offset_mm':100,'width_mm':50,'source':'manual'});
+    await store.save('element',{'id':'e2','wall_id':'w1','label':'Window','kind':'window','offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900,'source':'manual'});
+    expect((await store.get('w1'))!['review_status'],'needs_review');
+    expect((await store.get('e1'))!['review_status'],'incomplete');
+    expect((await store.get('e2'))!['review_status'],'needs_review');
+    await store.save('wall',{'id':'w1','review_status':'approved'});
+    expect((await store.get('w1'))!['review_status'],'approved');
+    await store.save('wall',{'id':'w1','length_mm':3200});
+    expect((await store.get('w1'))!['review_status'],'needs_review');
+    await db.close();
+  });
+
 }

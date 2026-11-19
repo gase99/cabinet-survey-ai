@@ -18,6 +18,8 @@ class ExportRequest(BaseModel):
     layout: str = "A4"  # A3 | A4
     include_elevations: bool = True
     include_plan: bool = True
+    exclude_unapproved: bool = False
+    flag_unapproved: bool = False
 
 class ExportOut(BaseModel):
     id: str

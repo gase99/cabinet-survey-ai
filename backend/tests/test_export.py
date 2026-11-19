@@ -11,8 +11,15 @@ def test_export_pdf_and_png(client, auth_headers):
         {"label":"Wall C","length_mm":4000,"height_mm":2700,"start_x_mm":4000,"start_y_mm":3000,"end_x_mm":0,"end_y_mm":3000},
         {"label":"Wall D","length_mm":3000,"height_mm":2700,"start_x_mm":0,"start_y_mm":3000,"end_x_mm":0,"end_y_mm":0},
     ]
+    wall_ids = []
     for wd in walls:
-        client.post(f"/api/v1/rooms/{rid}/walls", headers=auth_headers, json=wd)
+        created = client.post(f"/api/v1/rooms/{rid}/walls", headers=auth_headers, json=wd)
+        assert created.json()["review_status"] == "needs_review"
+        wall_ids.append(created.json()["id"])
+    # Unapproved manual walls cannot be exported without explicit approval
+    assert client.post(f"/api/v1/exports/{pid}", headers=auth_headers, json={"format":"pdf","layout":"A4"}).status_code == 409
+    for wid in wall_ids:
+        assert client.post(f"/api/v1/walls/{wid}/approve", headers=auth_headers).status_code == 200
 
     # PDF A4
     exp = client.post(f"/api/v1/exports/{pid}", headers=auth_headers, json={"format":"pdf","layout":"A4"})
@@ -59,11 +66,14 @@ def _rect_room(client, auth_headers, project_id, label, x=0, y=0, w=4000, h=3000
                        json={"label": label, "room_type": "rectangular"}).json()["id"]
     corners = [(x, y, x + w, y), (x + w, y, x + w, y + h), (x + w, y + h, x, y + h), (x, y + h, x, y)]
     for index, (sx, sy, ex, ey) in enumerate(corners):
-        source = "sketch_ai" if (index == 0 and sketch_wall) else "manual"
-        client.post(f"/api/v1/rooms/{room}/walls", headers=auth_headers, json={
+        unapproved_wall = index == 0 and sketch_wall
+        source = "sketch_ai" if unapproved_wall else "manual"
+        created = client.post(f"/api/v1/rooms/{room}/walls", headers=auth_headers, json={
             "label": f"{label}-W{index}", "length_mm": (w if index % 2 == 0 else h),
             "height_mm": 2700, "start_x_mm": sx, "start_y_mm": sy, "end_x_mm": ex, "end_y_mm": ey,
             "source": source})
+        if not unapproved_wall:
+            assert client.post(f"/api/v1/walls/{created.json()['id']}/approve", headers=auth_headers).status_code == 200
     return room
 
 

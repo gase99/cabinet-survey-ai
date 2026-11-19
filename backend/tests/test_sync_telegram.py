@@ -64,7 +64,8 @@ def test_telegram_delivery_queued(client, auth_headers):
         {"label":"C","length_mm":3000,"height_mm":2700,"start_x_mm":3000,"start_y_mm":2000,"end_x_mm":0,"end_y_mm":2000},
         {"label":"D","length_mm":2000,"height_mm":2700,"start_x_mm":0,"start_y_mm":2000,"end_x_mm":0,"end_y_mm":0},
     ]:
-        client.post(f"/api/v1/rooms/{rid}/walls", headers=auth_headers, json=wd)
+        created_wall = client.post(f"/api/v1/rooms/{rid}/walls", headers=auth_headers, json=wd)
+        assert client.post(f"/api/v1/walls/{created_wall.json()['id']}/approve", headers=auth_headers).status_code == 200
     exp = client.post(f"/api/v1/exports/{pid}", headers=auth_headers, json={"format":"pdf","layout":"A4"})
     exp_id = exp.json()["id"]
     # Link telegram first

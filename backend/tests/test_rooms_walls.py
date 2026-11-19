@@ -17,6 +17,7 @@ def test_room_wall_element_full_flow(client, auth_headers):
     for wd in walls_data:
         w = client.post(f"/api/v1/rooms/{rid}/walls", headers=auth_headers, json=wd)
         assert w.status_code == 201
+        assert w.json()["review_status"] == "needs_review"
         wall_ids.append(w.json()["id"])
     # List walls
     lst=client.get(f"/api/v1/rooms/{rid}/walls", headers=auth_headers)
@@ -24,15 +25,19 @@ def test_room_wall_element_full_flow(client, auth_headers):
     # Add window on Wall A
     win = client.post(f"/api/v1/walls/{wall_ids[0]}/elements", headers=auth_headers, json={"label":"Window 1","kind":"window","offset_mm":800,"width_mm":1200,"height_mm":1000,"sill_mm":900})
     assert win.status_code == 201
+    assert win.json()["review_status"] == "needs_review"
+    win_id = win.json()["id"]
     # Add door that overlaps should fail
     overlap = client.post(f"/api/v1/walls/{wall_ids[0]}/elements", headers=auth_headers, json={"label":"Door","kind":"door","offset_mm":1000,"width_mm":900,"height_mm":2100})
     assert overlap.status_code == 400
     # Out of bounds should fail
     oob = client.post(f"/api/v1/walls/{wall_ids[0]}/elements", headers=auth_headers, json={"label":"Too big","kind":"window","offset_mm":3500,"width_mm":1000})
     assert oob.status_code == 400
-    # Add gas pipe correctly
+    # Add gas pipe without height/sill -> assigned incomplete
     gas = client.post(f"/api/v1/walls/{wall_ids[1]}/elements", headers=auth_headers, json={"label":"Gas pipe","kind":"gas_pipe","offset_mm":100,"width_mm":50})
     assert gas.status_code == 201
+    assert gas.json()["review_status"] == "incomplete"
+    gas_id = gas.json()["id"]
     # Verify drawing generation
     plan = client.get(f"/api/v1/drawings/{pid}/plan", headers=auth_headers)
     assert plan.status_code == 200
@@ -40,6 +45,17 @@ def test_room_wall_element_full_flow(client, auth_headers):
     assert plan.json()["perimeter_mm"] == 14000
     assert len(plan.json()["elevations"]) == 4
     assert plan.json()["errors"] == []
+    # Versioning blocked before completion and explicit approval
+    assert client.post(f"/api/v1/drawings/{pid}/versions", headers=auth_headers).status_code == 409
+    assert client.post(f"/api/v1/elements/{gas_id}/approve", headers=auth_headers).status_code == 409
+    # Complete gas pipe dimensions and explicitly approve all walls and elements
+    completed_gas = client.put(f"/api/v1/elements/{gas_id}", headers=auth_headers, json={"height_mm": 2400, "sill_mm": 0})
+    assert completed_gas.status_code == 200
+    assert completed_gas.json()["review_status"] == "needs_review"
+    for wid in wall_ids:
+        assert client.post(f"/api/v1/walls/{wid}/approve", headers=auth_headers).status_code == 200
+    for eid in (win_id, gas_id):
+        assert client.post(f"/api/v1/elements/{eid}/approve", headers=auth_headers).status_code == 200
     # Create drawing version
     ver = client.post(f"/api/v1/drawings/{pid}/versions", headers=auth_headers)
     assert ver.status_code == 201

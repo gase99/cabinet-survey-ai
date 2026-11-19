@@ -52,7 +52,22 @@ class LocalStore {
       }
       // All subsequent local edits depend on the preceding revision, even offline.
       final base = before?['version'] as int? ?? 0;
-      final next = {...?before, ...value, 'created_at': before?['created_at'] ?? value['created_at'] ?? DateTime.now().toUtc().toIso8601String(), 'version': base+1};
+      final merged = {...?before, ...value};
+      if (kind == 'wall' || kind == 'element') {
+        final incomplete = kind == 'element'
+            ? (merged['height_mm'] == null || merged['sill_mm'] == null)
+            : (merged['length_mm'] == null || merged['height_mm'] == null);
+        if (before == null) {
+          merged['review_status'] = incomplete ? 'incomplete' : 'needs_review';
+        } else if (incomplete) {
+          merged['review_status'] = 'incomplete';
+          if (payload.containsKey('review_status')) payload['review_status'] = 'incomplete';
+        } else if (payload.keys.any((k) => k != 'review_status')) {
+          merged['review_status'] = 'needs_review';
+          if (payload['review_status'] == 'approved') payload.remove('review_status');
+        }
+      }
+      final next = {...merged, 'created_at': before?['created_at'] ?? value['created_at'] ?? DateTime.now().toUtc().toIso8601String(), 'version': base+1};
       final operation = {'id': uuid.v4(), 'entity_type': kind, 'entity_id': value['id'],
         'operation': before == null ? 'create' : 'update', 'payload': payload,
         'base_version': base};

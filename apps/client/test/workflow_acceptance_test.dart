@@ -34,10 +34,12 @@ void main() {
         final a=coords[i];
         await first.store.save('wall',{'id':ids[i],'room_id':room,'label':'Wall $i','length_mm':a[4],
           'height_mm':2700,'start_x_mm':a[0],'start_y_mm':a[1],'end_x_mm':a[2],'end_y_mm':a[3],
-          'source':'manual','review_status':'approved'});
+          'source':'manual'});
       }
       await first.store.save('element',{'id':window,'wall_id':ids.first,'label':'Window','kind':'window',
-        'offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900,'source':'manual','review_status':'approved'});
+        'offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900,'source':'manual'});
+      expect((await first.store.get(ids.first))!['review_status'],'needs_review');
+      expect((await first.store.get(window))!['review_status'],'needs_review');
       expect(validateRoom((await first.store.list('wall')).map(SurveyWall.fromJson).toList(),await first.store.list('element')),isEmpty);
       expect((await first.store.queue()).length,7);
       first.api.close();first.dispose();await db.close();
@@ -63,6 +65,11 @@ void main() {
       await reopened.sync();
       final resolved=(await reopened.store.get(window))!;
       expect(resolved['review_status'],'needs_review');
+      for(final id in ids) {
+        final wallRecord=(await reopened.store.get(id))!;
+        await reopened.store.save('wall',{...wallRecord,'review_status':'approved'});
+      }
+      await reopened.sync();
       await expectLater(reopened.api.request('POST','exports/$project',{'format':'pdf','layout':'A4'}),
         throwsA(isA<ApiException>().having((e) => e.status,'approval required',409)));
       await reopened.store.save('element',{...resolved,'review_status':'approved'});

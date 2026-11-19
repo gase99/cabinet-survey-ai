@@ -6,6 +6,7 @@ from app.core.deps import get_current_user
 from app.models.db_models import User, Project, Room, Wall, Element, DrawingVersion
 from app.services.geometry_service import walls_and_elements_from_room
 from app.services.audit import log_audit
+from app.services.revisions import missing_element_dimensions, missing_wall_dimensions
 
 router = APIRouter(prefix="/drawings", tags=["drawings"])
 
@@ -82,8 +83,19 @@ def create_drawing_version(project_id: str, db: Session = Depends(get_db), user:
     result = walls_and_elements_from_room(room, walls, elements)
     if result.errors:
         raise HTTPException(status_code=400, detail={"message": "Cannot version with geometry errors", "errors": [{"code": e.code, "message": e.message} for e in result.errors]})
-    if any(e.review_status != "approved" for e in [*walls, *elements]):
-        raise HTTPException(status_code=409, detail="Explicit approval is required before versioning")
+    if any(
+        e.review_status != "approved"
+        or (
+            missing_wall_dimensions(e)
+            if isinstance(e, Wall)
+            else missing_element_dimensions(e)
+        )
+        for e in [*walls, *elements]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Explicit approval and complete dimensions are required before versioning",
+        )
     # Determine next version
     last = db.query(DrawingVersion).filter(DrawingVersion.project_id == project_id).order_by(DrawingVersion.version.desc()).first()
     next_ver = (last.version + 1) if last else 1

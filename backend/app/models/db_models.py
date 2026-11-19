@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, DateTime, Boolean, Text, ForeignKey, Index, UniqueConstraint, Float, JSON
+from sqlalchemy import String, Integer, DateTime, Boolean, Text, ForeignKey, Index, UniqueConstraint, Float, JSON, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 import uuid
@@ -84,6 +84,8 @@ class Wall(Base):
     end_x_mm: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     end_y_mm: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_status: Mapped[str] = mapped_column(String(20), default="needs_review")
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", name="fk_walls_approved_by_users"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -104,6 +106,8 @@ class Element(Base):
     sill_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     depth_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     review_status: Mapped[str] = mapped_column(String(20), default="needs_review")
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", name="fk_elements_approved_by_users"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -242,3 +246,32 @@ class AuthThrottle(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     bucket: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MeasurementRevision(Base):
+    __tablename__ = "measurement_revisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", name="fk_measurement_revisions_project_id_projects"), index=True, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_revision_id: Mapped[str | None] = mapped_column(ForeignKey("measurement_revisions.id", name="fk_measurement_revisions_prev_id"), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    change_reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    changed_by: Mapped[str] = mapped_column(ForeignKey("users.id", name="fk_measurement_revisions_changed_by_users"), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", name="fk_measurement_revisions_approved_by_users"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    __table_args__ = (UniqueConstraint("entity_type", "entity_id", "revision_number", name="uq_measurement_entity_revision"),)
+
+
+@event.listens_for(MeasurementRevision, "before_update")
+def _forbid_revision_update(mapper, connection, target):
+    raise ValueError("MeasurementRevision records are immutable; append a new revision instead")
+
+
+@event.listens_for(MeasurementRevision, "before_delete")
+def _forbid_revision_delete(mapper, connection, target):
+    raise ValueError("MeasurementRevision records are immutable and cannot be deleted")
+

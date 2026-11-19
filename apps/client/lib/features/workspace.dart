@@ -101,7 +101,7 @@ class _WorkspaceState extends State<Workspace> {
     await run(() async {
       final next={...?wall,...value,'id':wall?['id']??uuid.v4(),'room_id':roomId,
         'source':wall?['source']??(spoken?'voice_ai':'manual'),
-        'review_status':wall==null?(spoken?'needs_review':'approved'):'needs_review'};
+        'review_status':'needs_review'};
       final candidate=SurveyWall.fromJson(next);
       if(candidate.length>50000 || candidate.height>10000) throw const FormatException('Wall dimensions exceed supported bounds');
       if(wall!=null) {undo.add({'kind':'wall','before':wall,'after':next}); redo.clear();}
@@ -117,8 +117,9 @@ class _WorkspaceState extends State<Workspace> {
     await run(() async {
       const kinds=['window','door','column','beam','gas_pipe','water_pipe','drain','electrical','switch','socket','ventilation','recess','protrusion','custom'];
       if(!kinds.contains(value['kind'])) throw FormatException('Kind: ${kinds.join(', ')}');
+      final incomplete=value['height_mm']==null || value['sill_mm']==null;
       final next={...?element,...value,'id':element?['id']??uuid.v4(),'wall_id':wall['id'],
-        'source':element?['source']??'manual','review_status':element==null?'approved':'needs_review'};
+        'source':element?['source']??'manual','review_status':incomplete?'incomplete':'needs_review'};
       final errors=validateRoom([SurveyWall.fromJson(wall)], [
         ...elements.where((e) => e['id']!=next['id']),next])
         .where((e) => e.contains('bounds') || e.contains('overlaps')).toList();
@@ -308,7 +309,7 @@ class _WorkspaceState extends State<Workspace> {
       if(wall['review_status']!='approved') TextButton(onPressed:() => run(() => c.store.save('wall',{...wall,'review_status':'approved'})),child:Text(tr(context,'Approve'))),
       for(final e in elements.where((e) => e['wall_id']==wall['id'])) ListTile(title:Text('${e['label']} (${e['kind']})'),
         subtitle:Text('${e['offset_mm']} / ${e['width_mm']} mm · ${e['review_status']}'),
-        onTap:() => editElement(wall,e),trailing:e['review_status']=='approved'?null:TextButton(
+        onTap:() => editElement(wall,e),trailing:(e['review_status']=='approved'||e['height_mm']==null||e['sill_mm']==null)?null:TextButton(
           onPressed:() => run(() => c.store.save('element',{...e,'review_status':'approved'})),child:Text(tr(context,'Approve')))),
       OutlinedButton(onPressed:() => editElement(wall),child:Text(tr(context,'Add element'))),
     ]))),
