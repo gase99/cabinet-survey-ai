@@ -1,0 +1,54 @@
+{
+  "pr": 1,
+  "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+  "checks": [
+    {
+      "id": 131928693696,
+      "name": "postgres-migration",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438207650/job/131928693696"
+    },
+    {
+      "id": 131928693656,
+      "name": "flutter",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438207737/job/131928693656"
+    },
+    {
+      "id": 131928693550,
+      "name": "test",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438207724/job/131928693550"
+    },
+    {
+      "id": 131928693345,
+      "name": "test",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438207650/job/131928693345"
+    },
+    {
+      "id": 131928664121,
+      "name": "postgres-migration",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438198864/job/131928664121"
+    },
+    {
+      "id": 131928663864,
+      "name": "test",
+      "head_sha": "ca5bc6aedb652b268a03dd34438fe995f22b6d13",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43438198864/job/131928663864"
+    }
+  ]
+}

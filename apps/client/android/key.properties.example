@@ -1,0 +1,6 @@
+# Copy to key.properties OUTSIDE version control. Prefer CI environment variables.
+# Absolute path avoids ambiguity. Never commit passwords or the keystore.
+storeFile=/absolute/private/path/cabinet-upload.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=upload
+keyPassword=REPLACE_LOCALLY

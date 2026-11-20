@@ -1,7 +1,7 @@
 # Agent instructions
 
 ## Product invariants
-- Platforms: Android + Web. Client: Flutter/Dart; backend: FastAPI.
+- Platforms: Android only. Client: Flutter/Dart; backend: FastAPI.
 - Support Persian RTL and English.
 - Persist all dimensions as integer millimetres; convert only at UI/API boundaries.
 - AI output is untrusted proposal data. Confidence is never approval.
@@ -22,7 +22,7 @@
 - Ask before changing approved product decisions or introducing paid infrastructure/providers.
 
 ## Repository map
-- `apps/client`: Flutter Android/Web client.
+- `apps/client`: Flutter Android client.
 - `backend/app`: FastAPI API and domain services.
 - `services/telegram-bot`: Telegram integration worker.
 - `packages`: shared contracts and geometry.

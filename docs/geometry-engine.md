@@ -18,3 +18,11 @@ Top-down plan geometry, one elevation per wall, dimension annotations, legend, s
 
 ## Testing
 Golden fixtures for rectangles, L/U-shaped rooms, recesses, columns, doors/windows, utility points, invalid closures, overlaps and boundary violations.
+
+## Current deterministic-input restrictions
+Wall endpoints and measured heights must be explicit; lengths alone do not establish
+corner topology. Missing endpoint data returns an error rather than selecting a
+plausible rectangle/L/U. Unknown element heights/sill references are listed as
+unpositioned values (`?`), never replaced with a default-size rectangle. Plan markers
+follow the actual wall direction. User labels are XML-escaped, not interpreted as
+SVG markup. Canonical area/perimeter and SVG hashes cover four explicit room shapes.

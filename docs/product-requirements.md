@@ -4,7 +4,7 @@
 Capture accurate customer-site measurements and produce editable, dimensioned 2D cabinet-survey drawings.
 
 ## Approved decisions
-- Platforms: Android + Web.
+- Platforms: Android only. Web cancelled by owner on 2026-11-14 (ADR-006).
 - AI: online multimodal API behind a provider-neutral backend adapter.
 - Outputs: in-app access/download and Telegram delivery.
 - Views: top-down overall plan and individual wall elevations.

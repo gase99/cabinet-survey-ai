@@ -1,28 +1,32 @@
-# System architecture
+# System architecture — Android only
 
-## Approved baseline
-- Client: Flutter/Dart for Android and Web, Material 3; Riverpod planned for state management.
-- API: Python + FastAPI.
-- Server persistence: PostgreSQL; local persistence: SQLite.
-- AI: online multimodal provider adapter; credentials remain server-side.
-- Image processing: OpenCV/OCR plus vision model; OCR is assistive, not authoritative.
-- Drawing: deterministic geometry core and vector output (SVG); no LLM-generated final coordinates.
-- Export: server-side PDF/PNG pipeline.
-- Telegram: independent worker using Telegram Bot API.
-- Deployment: Docker, HTTPS, managed secrets and backups.
+## Current baseline
+Flutter/Dart Android client, Material 3 and Riverpod; FastAPI backend; PostgreSQL server
+storage and native SQLite local storage. Web is cancelled (ADR-006). Persian RTL/English.
+Online AI remains a server-side provider adapter; deterministic geometry owns coordinates.
+PDF/PNG exports are generated server-side. Telegram runs as an independent worker using
+Bot API webhooks on owner-controlled compute, not Telegram-hosted application code.
 
 ## Logical flow
-Flutter client -> FastAPI -> project/measurement, AI orchestration, geometry, export and delivery services. PostgreSQL stores synced records. SQLite stores local projects and a durable outbox. Sync uses versions and explicit conflict states.
+Android → HTTPS FastAPI → ownership/auth, survey records, sync, AI orchestration,
+geometry and exports. PostgreSQL holds synced records; Android SQLite holds local
+projects and a transactional outbox. Sync uses versions and explicit conflict states.
+Currently sync is manual; photos, deletions and background reconnect are incomplete.
 
 ## Trust boundaries
-- Client is untrusted; authorization and validation are server-side.
-- AI output is untrusted proposal data.
-- Telegram updates and uploaded media are untrusted input.
-- Secrets exist only in backend/worker secret stores.
-- Customer images/contact data require access controls, retention policy and transport encryption.
+Android input and uploaded media are untrusted; authorization/validation are server-side.
+AI output is untrusted proposal data, never approval. Telegram updates are untrusted.
+Bot/provider/session signing secrets remain server-side. Android refresh credentials
+use platform secure storage; survey SQLite/photos are not encrypted. Customer data
+requires access control, retention, backup and transport encryption.
 
 ## Canonical model
-A project contains rooms, connected walls, openings/obstacles, observations, approvals, drawing versions, assets and audit events. Plan and wall elevations are projections of the same canonical geometry model.
+Project → rooms → connected walls → openings/obstacles, observations, approvals,
+drawing versions, assets and history. Plan and elevations are projections of the same
+geometry. Some planned entities/workflows remain incomplete; see the delivery report.
 
 ## Deployment
-Deploy API, PostgreSQL, background worker and Telegram integration as separately configurable services. The worker may share a host with the API but remains a separate process/container. Telegram itself is not the compute host.
+PostgreSQL, API, Telegram worker and API/webhook gateway are separate containers in
+`deploy/compose.yml`. AI/export currently execute synchronously inside API, not as
+separate background services. HTTPS reverse proxy and secrets are owner-managed.
+There is no static web bundle, browser database runtime or web deployment service.

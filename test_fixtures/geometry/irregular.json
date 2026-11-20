@@ -1,0 +1,99 @@
+{
+  "name": "irregular",
+  "points": [
+    [
+      0,
+      0
+    ],
+    [
+      4000,
+      0
+    ],
+    [
+      4000,
+      3000
+    ],
+    [
+      2000,
+      4500
+    ],
+    [
+      0,
+      3000
+    ]
+  ],
+  "lengths": [
+    4000,
+    3000,
+    2500,
+    2500,
+    3000
+  ],
+  "elements": [
+    {
+      "id": "window",
+      "wall_id": "w0",
+      "label": "Window",
+      "kind": "window",
+      "offset_mm": 500,
+      "width_mm": 1000,
+      "height_mm": 1000,
+      "sill_mm": 900,
+      "depth_mm": null
+    },
+    {
+      "id": "door",
+      "wall_id": "w1",
+      "label": "Door",
+      "kind": "door",
+      "offset_mm": 100,
+      "width_mm": 800,
+      "height_mm": 2100,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "column",
+      "wall_id": "w2",
+      "label": "Column",
+      "kind": "column",
+      "offset_mm": 0,
+      "width_mm": 200,
+      "height_mm": 2700,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "gas",
+      "wall_id": "w0",
+      "label": "Gas",
+      "kind": "gas_pipe",
+      "offset_mm": 2000,
+      "width_mm": 50,
+      "height_mm": null,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "water",
+      "wall_id": "w0",
+      "label": "Water",
+      "kind": "water_pipe",
+      "offset_mm": 2200,
+      "width_mm": 50,
+      "height_mm": null,
+      "sill_mm": null,
+      "depth_mm": null
+    }
+  ],
+  "area_mm2": 15000000,
+  "perimeter_mm": 15000,
+  "plan_sha256": "db5ddb068ac02c767eb29b041d2516208c9ab38eaca31e9308cd67faec9531f0",
+  "elevations_sha256": {
+    "w0": "741fb93bc6df1a45c8cf39e79b7da645c779b4a43584f8da816e2246975c1f03",
+    "w1": "9b315ac95a83abe22046c16c6104f47443c7626ed66452dacd6e64b353698542",
+    "w2": "e24d98243a58d2116995e0c629dcd7010ef1b5013a9b280d28b252a13f23831d",
+    "w3": "a2c394821623e99c542c12c693620cfd45a672dfb5ee029aec0c2a24584362b8",
+    "w4": "75a55bb2ea706a04d5234bc9f2dd696c151a337b8b87c70244470ba0631e8eb3"
+  }
+}

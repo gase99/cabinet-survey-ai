@@ -1,0 +1,21 @@
+name: worker-ci
+permissions:
+  contents: read
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record exact tested commit
+        run: git rev-parse HEAD
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+        working-directory: services/telegram-bot
+      - run: PYTHONPATH=. pytest -q --junitxml=/tmp/worker-tests.xml
+        working-directory: services/telegram-bot

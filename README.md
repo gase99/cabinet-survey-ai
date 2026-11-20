@@ -1,46 +1,40 @@
-# Cabinet Survey AI
+# Cabinet Survey AI — Android
 
-AI-assisted field surveying and 2D documentation for cabinet makers.
+برداشت میدانی کابینت با Flutter، فارسی/انگلیسی، ذخیرهٔ آفلاین و API مستقل.
 
-> **Status:** Initial architecture/scaffold, not a feature-complete product. See the roadmap for implementation phases.
+**تصمیم جاری: فقط Android. نسخهٔ وب لغو شده است.** وضعیت محصول پیش‌انتشار است؛
+تکمیل بسته‌بندی اندروید به معنی تکمیل همهٔ قابلیت‌های نقشه‌کشی/AI یا تأیید انتشار نیست.
 
-## Approved scope
-- Android + Web client using Flutter/Dart; Persian RTL and English.
-- Offline-first customer/project capture, rooms, walls, dimensions, obstacles, photos and notes.
-- Online multimodal AI for text, voice transcripts and annotated hand sketches.
-- Human review and explicit approval before extracted values become authoritative.
-- Deterministic geometry engine generating a top-down plan and individual wall elevations from one canonical model.
-- FastAPI backend, PostgreSQL server storage, SQLite local storage, PDF/PNG export and Telegram delivery.
+## گزارش فارسی و راه‌اندازی
+- [گزارش تحویل، محدودیت‌ها و مسیر انتشار اندروید](docs/android-delivery-fa.md)
+- [راهنمای گام‌به‌گام راه‌اندازی ربات تلگرام و سرور](docs/telegram-setup-fa.md)
+- [توسعهٔ محلی](docs/local-development.md) و [ساخت Android](apps/client/README.md)
 
-## Telegram hosting clarification
-Telegram provides the Bot API; it does **not** host arbitrary customer bot application code. The bot worker must run on a VPS, Docker host or managed cloud runtime controlled by the project owner and communicate with Telegram over HTTPS. See [Telegram deployment](docs/telegram-deployment.md).
+## ساختار
+- `apps/client`: کلاینت Flutter فقط برای Android؛ فایل‌های پلتفرم در Git نگهداری می‌شوند.
+- `backend`: FastAPI، PostgreSQL، همگام‌سازی، هندسهٔ قطعی و خروجی PDF/PNG.
+- `services/telegram-bot`: ورکر مستقل روی سرور تحت کنترل مالک، نه کد میزبانی‌شده در تلگرام.
+- `deploy`: PostgreSQL/API/worker و درگاه API/وب‌هوک؛ بدون کلاینت وب.
+- `docs`: تصمیم‌ها، قراردادها و سوابق بررسی. گزارش‌های قدیمِ Android/Web صرفاً تاریخی‌اند.
 
-## Repository map
-- `apps/client`: Flutter Android/Web app.
-- `backend`: FastAPI API and domain services.
-- `services/telegram-bot`: separately deployable Telegram integration worker.
-- `packages`: shared contracts and geometry core.
-- `docs`: architecture, requirements, data, AI, geometry, security and operations.
-- `test_fixtures`: anonymized inputs and golden outputs.
+## شروع سریع
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r backend/requirements.txt
+python scripts/init-environment.py  # یک‌بار؛ .env موجود را بازنویسی نمی‌کند
+# توکن ربات و دامنهٔ HTTPS واقعی را فقط در .env خصوصی تنظیم کنید.
+docker compose --env-file .env -f deploy/compose.yml up --build -d
+```
 
-## Quick start (backend scaffold)
-1. Copy `.env.example` to `.env`; never commit real credentials.
-2. Start PostgreSQL: `docker compose up -d db`.
-3. Install `backend/requirements.txt` in a Python 3.11+ virtual environment.
-4. Run: `uvicorn app.main:app --app-dir backend --reload`.
-5. Visit `http://127.0.0.1:8000/health`.
+برای APK، Flutter **3.35.7**، Java 21 و Android SDK لازم است. فایل
+`apps/client/config/api.example.json` را به `api.json` کپی و نشانی API واقعی را تنظیم کنید؛
+سپس `bash scripts/build-android.sh debug`. برای release، امضای مالک و HTTPS الزامی است.
+هیچ توکن یا کلید امضایی نباید وارد اپ یا Git شود.
 
-The Flutter client is a foundation scaffold. Follow [local development](docs/local-development.md).
+## اصول تغییرناپذیر
+اندازه‌ها عدد صحیح میلی‌مترند؛ مقیاس از پیکسل حدس زده نمی‌شود؛ خروجی AI فقط پیشنهاد است؛
+تأیید کاربر الزامی است؛ مختصات نهایی را هندسهٔ قطعی تولید می‌کند؛ برداشت آفلاین مستقل از
+AI کار می‌کند؛ نقشه و نما از یک مدل مشترک‌اند. سوابق تأیید و منشأ باید حفظ شوند.
 
-## Non-negotiable rules
-- Store canonical dimensions as integer millimetres.
-- Never infer real-world scale from sketch pixels alone.
-- AI proposes observations; it never silently fills missing dimensions or publishes final engineering drawings.
-- User approval is mandatory before extracted values become approved data.
-- Deterministic geometry, not an LLM, owns coordinates and drawings.
-- Plan and wall elevations share one canonical geometry model.
-- Preserve provenance, source regions, confidence, review status and edit history.
-- Keep provider credentials and Telegram tokens server-side.
-- Offline capture and geometry must work without AI/network access.
-
-See [roadmap](docs/development-roadmap.md) and [agent instructions](AGENTS.md).
+[دستورالعمل مشارکت](AGENTS.md) · [نقشهٔ راه مرحله‌ای](docs/development-roadmap.md)

@@ -1,0 +1,52 @@
+{
+  "branch": "arena/d880f4a8-cabinet-survey-ai",
+  "head_sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+  "checks": [
+    {
+      "workflow": "backend-ci",
+      "job": "test",
+      "sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+      "status": "PASS",
+      "conclusion": "success",
+      "url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43606214171/job/132481297935",
+      "run_id": 43606214171
+    },
+    {
+      "workflow": "backend-ci",
+      "job": "postgres-migration",
+      "sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+      "status": "PASS",
+      "conclusion": "success",
+      "url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43606214171/job/132481298093",
+      "run_id": 43606214171
+    },
+    {
+      "workflow": "worker-ci",
+      "job": "test",
+      "sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+      "status": "PASS",
+      "conclusion": "success",
+      "url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43606214046/job/132481297826",
+      "run_id": 43606214046
+    },
+    {
+      "workflow": "android-ci",
+      "job": "flutter-android",
+      "sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+      "status": "PASS",
+      "conclusion": "success",
+      "url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43606213998/job/132481297346",
+      "run_id": 43606213998
+    },
+    {
+      "workflow": "android-ci",
+      "job": "android-emulator",
+      "sha": "1654566c716a4c56a471c390711c4f9cb6dd3ff6",
+      "status": "PASS",
+      "conclusion": "success",
+      "url": "https://github.com/gase99/cabinet-survey-ai/actions/runs/43606213998/job/132481297618",
+      "run_id": 43606213998
+    }
+  ],
+  "status": "PASS"
+}

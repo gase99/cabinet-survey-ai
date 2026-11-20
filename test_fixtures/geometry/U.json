@@ -1,0 +1,117 @@
+{
+  "name": "U",
+  "points": [
+    [
+      0,
+      0
+    ],
+    [
+      6000,
+      0
+    ],
+    [
+      6000,
+      5000
+    ],
+    [
+      4000,
+      5000
+    ],
+    [
+      4000,
+      2000
+    ],
+    [
+      2000,
+      2000
+    ],
+    [
+      2000,
+      5000
+    ],
+    [
+      0,
+      5000
+    ]
+  ],
+  "lengths": [
+    6000,
+    5000,
+    2000,
+    3000,
+    2000,
+    3000,
+    2000,
+    5000
+  ],
+  "elements": [
+    {
+      "id": "window",
+      "wall_id": "w0",
+      "label": "Window",
+      "kind": "window",
+      "offset_mm": 500,
+      "width_mm": 1000,
+      "height_mm": 1000,
+      "sill_mm": 900,
+      "depth_mm": null
+    },
+    {
+      "id": "door",
+      "wall_id": "w1",
+      "label": "Door",
+      "kind": "door",
+      "offset_mm": 100,
+      "width_mm": 800,
+      "height_mm": 2100,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "column",
+      "wall_id": "w2",
+      "label": "Column",
+      "kind": "column",
+      "offset_mm": 0,
+      "width_mm": 200,
+      "height_mm": 2700,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "gas",
+      "wall_id": "w0",
+      "label": "Gas",
+      "kind": "gas_pipe",
+      "offset_mm": 2000,
+      "width_mm": 50,
+      "height_mm": null,
+      "sill_mm": null,
+      "depth_mm": null
+    },
+    {
+      "id": "water",
+      "wall_id": "w0",
+      "label": "Water",
+      "kind": "water_pipe",
+      "offset_mm": 2200,
+      "width_mm": 50,
+      "height_mm": null,
+      "sill_mm": null,
+      "depth_mm": null
+    }
+  ],
+  "area_mm2": 24000000,
+  "perimeter_mm": 28000,
+  "plan_sha256": "21be89f101a4d8d83dbc038db05e02c7e54317227f6392c6910907ce953669d6",
+  "elevations_sha256": {
+    "w0": "3afe057e483154ebda2a170a41e57793a5c7aff05b12a98c963f43febb39b0c5",
+    "w1": "cf688abc675d59d003a9389c601f464b1aeb033f5e95e6fc05c07818607c1000",
+    "w2": "50cd400f0e7bdcb7a4d3918cbf717fd9be397b8e2cf328c4453e1260019e2508",
+    "w3": "6a894ae41a0dad03252832c20acdfd885c68b3b8d37f1570b02b6c22dafe8c19",
+    "w4": "2cf5737a77bc33aa77051ea57e29cb7085b153910249b60143e9bc1c051ce1ec",
+    "w5": "8adda05431b90ff5460edb25295b7d7cd77d57946c4600ba1c99fcb248a44315",
+    "w6": "de9454c5e08c315596fe86580de6ddc5822d9d4577ed60cca8742d73c18a351d",
+    "w7": "ccad299c8b095f19b3e5f66e570e33b3f5d1323e67d2e7e31e3c2cedaee988e2"
+  }
+}
