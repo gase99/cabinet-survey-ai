@@ -23,17 +23,37 @@ Json extractionJson() => {
 };
 
 void main() {
-  Future<VoiceProposal?> pumpAndApply(WidgetTester tester, {required bool authenticated}) async {
-    VoiceProposal? applied;
-    final api = Api(baseUrl: 'https://example.invalid/api/v1/', client: MockClient((request) async {
-      expect(request.url.toString(), 'https://example.invalid/api/v1/ai/parse-text');
-      return http.Response(jsonEncode(extractionJson()), 200);
-    }));
+  Future<void> pumpAndAnalyze(
+    WidgetTester tester, {
+    required bool authenticated,
+    required ValueChanged<VoiceProposal?> onApplied,
+  }) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final api = Api(
+      baseUrl: 'https://example.invalid/api/v1/',
+      client: MockClient((request) async {
+        expect(request.url.toString(), 'https://example.invalid/api/v1/ai/parse-text');
+        return http.Response.bytes(
+          utf8.encode(jsonEncode(extractionJson())),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(api.close);
     if (authenticated) api.token = 'secret-test-token';
     await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(body: TextButton(
       onPressed: () async {
-        applied = await Navigator.push<VoiceProposal>(context,
-          MaterialPageRoute<VoiceProposal>(builder: (_) => VoiceIntake(api: api)));
+        final result = await Navigator.push<VoiceProposal>(
+          context,
+          MaterialPageRoute<VoiceProposal>(builder: (_) => VoiceIntake(api: api)),
+        );
+        onApplied(result);
       },
       child: const Text('Open'))))));
     await tester.tap(find.text('Open'));
@@ -41,22 +61,26 @@ void main() {
     await tester.enterText(find.byType(TextField), 'طول دیوار سه متر و بیست سانتی‌متر');
     await tester.tap(find.text('Analyze'));
     await tester.pumpAndSettle();
-    return applied;
   }
 
   testWidgets('transcript analysis shows proposals, conflicts and questions; nothing auto-applies',
       (tester) async {
-    final applied = await pumpAndApply(tester, authenticated: true);
+    VoiceProposal? applied;
+    await pumpAndAnalyze(tester, authenticated: true, onApplied: (proposal) => applied = proposal);
+    expect(applied, isNull);
     expect(find.textContaining('3200'), findsOneWidget);
     expect(find.textContaining('3000'), findsOneWidget);
     // Conflict cards are visible, not silently resolved.
     expect(find.textContaining('Conflicting spoken values'), findsNWidgets(2));
     expect(find.textContaining('Wall height not specified'), findsOneWidget);
     // Apply only pops with the proposal; the screen never writes survey data.
-    await tester.tap(find.widgetWithText(FilledButton, 'Apply').first);
+    final applyButton = find.widgetWithText(FilledButton, 'Apply').first;
+    await tester.ensureVisible(applyButton);
+    await tester.tap(applyButton);
     await tester.pumpAndSettle();
+    expect(applied, isNotNull);
     expect(applied!.valueMm, 3200);
-    expect(applied.wallField, 'length_mm');
+    expect(applied!.wallField, 'length_mm');
     expect(find.byType(VoiceIntake), findsNothing);
   });
 
@@ -64,6 +88,7 @@ void main() {
       (tester) async {
     final api = Api(baseUrl: 'https://example.invalid/api/v1/', client: MockClient((_) async =>
       throw StateError('network must not be reached')));
+    addTearDown(api.close);
     await tester.pumpWidget(MaterialApp(home: VoiceIntake(api: api)));
     await tester.enterText(find.byType(TextField), 'طول دیوار سه متر');
     await tester.tap(find.text('Analyze'));

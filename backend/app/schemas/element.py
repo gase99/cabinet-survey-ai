@@ -21,7 +21,7 @@ class ElementUpdate(BaseModel):
     height_mm: int | None = None
     sill_mm: int | None = None
     depth_mm: int | None = None
-    review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete|approved)$")
+    review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete)$")
 
 class ElementOut(BaseModel):
     id: str

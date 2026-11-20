@@ -235,6 +235,33 @@ def test_approve_flow_records_who_and_when_and_rejects_incomplete(client, auth_h
     assert updated.status_code == 200
     assert updated.json()["review_status"] == "needs_review"
 
+    # PUT with review_status='approved' must be rejected (422); approval only via POST /approve
+    put_wall_approve = client.put(
+        f"/api/v1/walls/{wall_id}",
+        headers=auth_headers,
+        json={"review_status": "approved"},
+    )
+    assert put_wall_approve.status_code == 422
+    assert (
+        client.get(f"/api/v1/walls/{wall_id}", headers=auth_headers).json()[
+            "review_status"
+        ]
+        == "needs_review"
+    )
+
+    put_elem_approve = client.put(
+        f"/api/v1/elements/{elem_id}",
+        headers=auth_headers,
+        json={"review_status": "approved"},
+    )
+    assert put_elem_approve.status_code == 422
+    assert (
+        client.get(f"/api/v1/elements/{elem_id}", headers=auth_headers).json()[
+            "review_status"
+        ]
+        == "needs_review"
+    )
+
     # Explicit approve records approved_by and approved_at
     approved_wall = client.post(
         f"/api/v1/walls/{wall_id}/approve", headers=auth_headers

@@ -139,37 +139,6 @@ def update_element(
     data = payload.model_dump(exclude_unset=True)
     if "review_status" in data and data["review_status"] is None:
         raise HTTPException(status_code=422, detail="review_status cannot be null")
-    if data.get("review_status") == "approved":
-        if set(data) != {"review_status"}:
-            raise HTTPException(
-                status_code=422,
-                detail="Approval must be a separate explicit operation",
-            )
-        try:
-            approve_entity(
-                db,
-                project_id=project.id,
-                entity_type="element",
-                entity=elem,
-                user_id=user.id,
-            )
-        except ValueError as err:
-            raise HTTPException(status_code=409, detail=str(err))
-        project.version += 1
-        room.version += 1
-        wall.version += 1
-        db.commit()
-        db.refresh(elem)
-        log_audit(
-            db,
-            user_id=user.id,
-            project_id=project.id,
-            action="element.approve",
-            entity_type="element",
-            entity_id=elem.id,
-            detail=f"approved_by={user.id} approved_at={elem.approved_at.isoformat()}",
-        )
-        return elem
 
     from app.api.v1.sync import check_element
 

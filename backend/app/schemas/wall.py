@@ -20,7 +20,7 @@ class WallUpdate(BaseModel):
     start_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     end_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     end_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
-    review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete|approved)$")
+    review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete)$")
 
 class WallOut(BaseModel):
     id: str

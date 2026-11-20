@@ -25,12 +25,15 @@ void main() {
     final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async {
       url=request.url; contentType=request.headers['Content-Type'];
       body=request.body;
-      return http.Response(jsonEncode({
-        'observations':[{'label':'wall length','kind':'wall_length','value_mm':3200,
-          'unit':'mm','source_text':'سه متر و بیست سانتی متر','intent':'statement',
-          'needs_review':true,'confidence':0.9}],
-        'ambiguities':[],'clarification_questions':[],'provider':'deterministic_spoken',
-        'disclaimer':'proposals'}),200);
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'observations':[{'label':'wall length','kind':'wall_length','value_mm':3200,
+            'unit':'mm','source_text':'سه متر و بیست سانتی متر','intent':'statement',
+            'needs_review':true,'confidence':0.9}],
+          'ambiguities':[],'clarification_questions':[],'provider':'deterministic_spoken',
+          'disclaimer':'proposals'})),
+        200,
+        headers:{'content-type':'application/json; charset=utf-8'});
     }));
     api.token='secret-test-token';
     final result=await api.parseText('طول دیوار سه متر و بیست سانتی‌متر');
