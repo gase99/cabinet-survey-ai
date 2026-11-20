@@ -62,3 +62,18 @@ def test_postgres_quota_is_shared_and_atomic(monkeypatch):
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         statuses=list(pool.map(attempt,range(8)))
     assert statuses.count(401)==2 and statuses.count(429)==6
+
+
+def test_postgres_concurrent_rest_put_returns_409_on_stale_version():
+    with TestClient(app) as client:
+        headers=account(client)
+        project=client.post('/api/v1/projects',headers=headers,json={'title':'REST Lock fixture'}).json()['id']
+        room=client.post(f'/api/v1/projects/{project}/rooms',headers=headers,json={'label':'Kitchen'}).json()['id']
+        wall=client.post(f'/api/v1/rooms/{room}/walls',headers=headers,json={'label':'W1','length_mm':3000,'height_mm':2700}).json()['id']
+        def put_wall(index):
+            with TestClient(app) as worker:
+                return worker.put(f'/api/v1/walls/{wall}',headers=headers,json={'length_mm':3000+index*100,'version':1}).status_code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            statuses=list(pool.map(put_wall,[1,2]))
+        assert sorted(statuses)==[200,409]
+        assert client.get(f'/api/v1/walls/{wall}',headers=headers).json()['version']==2

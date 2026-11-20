@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List
+from pydantic import BaseModel, Field
+
 
 class ProjectCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
@@ -8,11 +8,15 @@ class ProjectCreate(BaseModel):
     site_notes: str | None = None
     status: str = Field(default="draft", pattern="^(draft|in_progress|completed|archived)$")
 
+
 class ProjectUpdate(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
+    title: str | None = Field(default=None, min_length=1, max_length=300)
     customer_id: str | None = None
     site_notes: str | None = None
     status: str | None = Field(default=None, pattern="^(draft|in_progress|completed|archived|deleted)$")
+    version: int | None = Field(strict=True, default=None, ge=1)
+    base_version: int | None = Field(strict=True, default=None, ge=1)
+
 
 class ProjectOut(BaseModel):
     id: str
@@ -23,9 +27,11 @@ class ProjectOut(BaseModel):
     site_notes: str | None
     version: int
     is_deleted: bool
+    deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
+
 
 class ProjectSearchParams(BaseModel):
     q: str | None = None

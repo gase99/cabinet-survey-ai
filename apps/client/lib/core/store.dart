@@ -15,21 +15,36 @@ class LocalStore {
   static Future<Database> open({DatabaseFactory? testFactory, String path = 'cabinet_survey.sqlite'}) async {
     final factory = testFactory ?? databaseFactory;
     return factory.openDatabase(path, options: OpenDatabaseOptions(
-      version: 1, onCreate: (db, version) async {
+      version: 1,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onCreate: (db, version) async {
         await db.execute('CREATE TABLE records (owner TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,id))');
         await db.execute('CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, id TEXT UNIQUE NOT NULL, body TEXT NOT NULL, state TEXT NOT NULL, result TEXT)');
-        await db.execute('CREATE TABLE revisions (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, entity_id TEXT NOT NULL, body TEXT NOT NULL)');
-        await db.execute('CREATE TABLE photos (owner TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(owner,id))');
+        await db.execute('CREATE TABLE revisions (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, entity_id TEXT NOT NULL, body TEXT NOT NULL, FOREIGN KEY(owner, entity_id) REFERENCES records(owner, id))');
+        await db.execute('CREATE TABLE photos (owner TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(owner,id), FOREIGN KEY(owner, project_id) REFERENCES records(owner, id))');
       }));
   }
-  Future<List<Json>> list(String kind) async => (await db.query('records',
+  Future<List<Json>> list(String kind, {bool includeDeleted = false}) async => (await db.query('records',
     where: 'owner=? AND kind=?', whereArgs: [owner, kind]))
-      .map((r) => jsonDecode(r['body'] as String) as Json).toList()
+      .map((r) => jsonDecode(r['body'] as String) as Json)
+      .where((item) => includeDeleted || item['is_deleted'] != true)
+      .toList()
       ..sort((a,b) => '${a['created_at'] ?? a['id']}'.compareTo('${b['created_at'] ?? b['id']}'));
-  Future<Json?> get(String id) async {
+  Future<Json?> get(String id, {bool includeDeleted = false}) async {
     final rows = await db.query('records', where: 'owner=? AND id=?', whereArgs: [owner,id]);
-    return rows.isEmpty ? null : jsonDecode(rows.single['body'] as String) as Json;
+    if (rows.isEmpty) return null;
+    final decoded = jsonDecode(rows.single['body'] as String) as Json;
+    if (!includeDeleted && decoded['is_deleted'] == true) return null;
+    return decoded;
   }
+  Future<List<Json>> tombstones([String? kind]) async => (await db.query('records',
+    where: kind == null ? 'owner=?' : 'owner=? AND kind=?',
+    whereArgs: kind == null ? [owner] : [owner, kind]))
+      .map((r) => jsonDecode(r['body'] as String) as Json)
+      .where((item) => item['is_deleted'] == true)
+      .toList();
   Future<void> save(String kind, Json value) async {
     await db.transaction((tx) async {
       final old = await tx.query('records', where: 'owner=? AND id=?', whereArgs: [owner,value['id']]);
@@ -71,8 +86,29 @@ class LocalStore {
       final operation = {'id': uuid.v4(), 'entity_type': kind, 'entity_id': value['id'],
         'operation': before == null ? 'create' : 'update', 'payload': payload,
         'base_version': base};
-      await tx.insert('revisions', {'owner': owner, 'entity_id': value['id'], 'body': jsonEncode(before ?? value)});
-      await tx.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind, 'body': jsonEncode(next)}, conflictAlgorithm: ConflictAlgorithm.replace);
+      if (before == null) {
+        await tx.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind, 'body': jsonEncode(next)});
+        await tx.insert('revisions', {'owner': owner, 'entity_id': value['id'], 'body': jsonEncode(value)});
+      } else {
+        await tx.insert('revisions', {'owner': owner, 'entity_id': value['id'], 'body': jsonEncode(before)});
+        await tx.update('records', {'kind': kind, 'body': jsonEncode(next)}, where: 'owner=? AND id=?', whereArgs: [owner, value['id']]);
+      }
+      await tx.insert('outbox', {'owner': owner, 'id': operation['id'], 'body': jsonEncode(operation), 'state': 'pending'});
+    });
+  }
+  Future<void> delete(String kind, String id) async {
+    await db.transaction((tx) async {
+      final old = await tx.query('records', where: 'owner=? AND id=?', whereArgs: [owner, id]);
+      if (old.isEmpty) throw StateError('Local record missing');
+      final before = jsonDecode(old.single['body'] as String) as Json;
+      if (before['is_deleted'] == true) return;
+      final base = before['version'] as int? ?? 1;
+      final deletedAt = DateTime.now().toUtc().toIso8601String();
+      final next = {...before, 'is_deleted': true, 'deleted_at': deletedAt, 'version': base + 1};
+      final operation = {'id': uuid.v4(), 'entity_type': kind, 'entity_id': id,
+        'operation': 'delete', 'payload': <String, dynamic>{}, 'base_version': base};
+      await tx.insert('revisions', {'owner': owner, 'entity_id': id, 'body': jsonEncode(before)});
+      await tx.update('records', {'kind': kind, 'body': jsonEncode(next)}, where: 'owner=? AND id=?', whereArgs: [owner, id]);
       await tx.insert('outbox', {'owner': owner, 'id': operation['id'], 'body': jsonEncode(operation), 'state': 'pending'});
     });
   }
@@ -89,8 +125,29 @@ class LocalStore {
     await db.transaction((tx) async {
       final queued=await tx.query('outbox',where:'owner=? AND state NOT IN (?,?)',whereArgs:[owner,'applied','resolved']);
       if(queued.any((row) => (jsonDecode(row['body'] as String) as Json)['entity_id']==value['id'])) return;
-      await tx.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind,
-        'body': jsonEncode(value)}, conflictAlgorithm: ConflictAlgorithm.replace);
+      final existing = await tx.query('records', columns: ['id'], where: 'owner=? AND id=?', whereArgs: [owner, value['id']]);
+      if (existing.isEmpty) {
+        await tx.insert('records', {'owner': owner, 'id': value['id'], 'kind': kind, 'body': jsonEncode(value)});
+      } else {
+        await tx.update('records', {'kind': kind, 'body': jsonEncode(value)}, where: 'owner=? AND id=?', whereArgs: [owner, value['id']]);
+      }
+    });
+  }
+  Future<void> applyTombstone(String kind, Json tombstone) async {
+    final entityId = (tombstone['entity_id'] ?? tombstone['id']) as String;
+    await db.transaction((tx) async {
+      final queued = await tx.query('outbox', where: 'owner=? AND state NOT IN (?,?)', whereArgs: [owner, 'applied', 'resolved']);
+      if (queued.any((row) => (jsonDecode(row['body'] as String) as Json)['entity_id'] == entityId)) return;
+      final existing = await tx.query('records', where: 'owner=? AND id=?', whereArgs: [owner, entityId]);
+      final before = existing.isEmpty ? null : jsonDecode(existing.single['body'] as String) as Json;
+      final next = {...?before, 'id': entityId, 'is_deleted': true,
+        'deleted_at': tombstone['deleted_at'],
+        'version': tombstone['version'] ?? ((before?['version'] as int? ?? 0) + 1)};
+      if (existing.isEmpty) {
+        await tx.insert('records', {'owner': owner, 'id': entityId, 'kind': kind, 'body': jsonEncode(next)});
+      } else {
+        await tx.update('records', {'kind': kind, 'body': jsonEncode(next)}, where: 'owner=? AND id=?', whereArgs: [owner, entityId]);
+      }
     });
   }
   Future<void> keepServer(Json row) async {
@@ -115,7 +172,7 @@ class LocalStore {
   Future<void> keepLocal(Json row) async {
     final op=row['operation'] as Json;
     final response=row['response'] as Json;
-    final current=await get(op['entity_id'] as String);
+    final current=await get(op['entity_id'] as String, includeDeleted: true);
     if(current==null) throw StateError('Local record missing');
     final kind=op['entity_type'] as String;
     final base=response['server_version'] as int;
@@ -126,10 +183,13 @@ class LocalStore {
       'wall':['label','length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm'],
       'element':['label','kind','offset_mm','width_mm','height_mm','sill_mm','depth_mm'],
     };
-    final payload=<String,dynamic>{for(final key in fields[kind]!) if(current.containsKey(key)) key:current[key]};
-    if(kind=='wall' || kind=='element') payload['review_status']='needs_review';
+    final isDelete = op['operation'] == 'delete' || current['is_deleted'] == true;
+    final payload = isDelete
+        ? <String, dynamic>{}
+        : <String,dynamic>{for(final key in fields[kind]!) if(current.containsKey(key)) key:current[key]};
+    if(!isDelete && (kind=='wall' || kind=='element')) payload['review_status']='needs_review';
     final replacement={'id':uuid.v4(),'entity_type':kind,'entity_id':op['entity_id'],
-      'operation':'update','payload':payload,'base_version':base};
+      'operation': isDelete ? 'delete' : 'update','payload':payload,'base_version':base};
     await db.transaction((tx) async {
       await tx.insert('revisions',{'owner':owner,'entity_id':op['entity_id'],'body':jsonEncode(response['server_payload'])});
       await tx.insert('revisions',{'owner':owner,'entity_id':op['entity_id'],'body':jsonEncode(current)});
@@ -141,7 +201,7 @@ class LocalStore {
         }
       }
       await tx.update('records',{'body':jsonEncode({...current,'version':base+1,
-        if(kind=='wall' || kind=='element') 'review_status':'needs_review'})},
+        if(!isDelete && (kind=='wall' || kind=='element')) 'review_status':'needs_review'})},
         where:'owner=? AND id=?',whereArgs:[owner,op['entity_id']]);
       await tx.insert('outbox',{'owner':owner,'id':replacement['id'],'body':jsonEncode(replacement),'state':'pending'});
     });

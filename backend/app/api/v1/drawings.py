@@ -12,7 +12,7 @@ router = APIRouter(prefix="/drawings", tags=["drawings"])
 
 def get_project_and_check(project_id: str, db, user):
     project = db.get(Project, project_id)
-    if not project or project.owner_id != user.id:
+    if not project or project.owner_id != user.id or project.is_deleted:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
@@ -22,15 +22,15 @@ def get_plan(project_id: str, room_id: str | None = None, db: Session = Depends(
     # Pick first room if not specified
     if room_id:
         room = db.get(Room, room_id)
-        if not room or room.project_id != project_id:
+        if not room or room.project_id != project_id or room.is_deleted:
             raise HTTPException(status_code=404, detail="Room not found")
     else:
-        room = db.query(Room).filter(Room.project_id == project_id).first()
+        room = db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
         if not room:
             raise HTTPException(status_code=404, detail="No rooms in project")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
+    walls = db.query(Wall).filter(Wall.room_id == room.id, Wall.is_deleted.is_(False)).order_by(Wall.created_at, Wall.id).all()
     wall_ids = [w.id for w in walls]
-    elements = db.query(Element).filter(Element.wall_id.in_(wall_ids)).all() if wall_ids else []
+    elements = db.query(Element).filter(Element.wall_id.in_(wall_ids), Element.is_deleted.is_(False)).all() if wall_ids else []
     result = walls_and_elements_from_room(room, walls, elements)
     return {
         "project_id": project_id,
@@ -50,36 +50,36 @@ def get_elevations(project_id: str, room_id: str | None = None, db: Session = De
     project = get_project_and_check(project_id, db, user)
     if room_id:
         room = db.get(Room, room_id)
-        if not room or room.project_id != project_id:
+        if not room or room.project_id != project_id or room.is_deleted:
             raise HTTPException(status_code=404, detail="Room not found")
     else:
-        room = db.query(Room).filter(Room.project_id == project_id).first()
+        room = db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
         if not room:
             raise HTTPException(status_code=404, detail="No rooms in project")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
-    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
+    walls = db.query(Wall).filter(Wall.room_id == room.id, Wall.is_deleted.is_(False)).order_by(Wall.created_at, Wall.id).all()
+    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls]), Element.is_deleted.is_(False)).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     return {"project_id": project_id, "room_id": room.id, "elevations": result.elevations}
 
 @router.get("/{project_id}/plan.svg", response_class=PlainTextResponse)
 def get_plan_svg(project_id: str, room_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_project_and_check(project_id, db, user)
-    room = db.get(Room, room_id) if room_id else db.query(Room).filter(Room.project_id == project_id).first()
-    if not room or room.project_id != project_id:
+    room = db.get(Room, room_id) if room_id else db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
+    if not room or room.project_id != project_id or room.is_deleted:
         raise HTTPException(status_code=404, detail="Room not found")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
-    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
+    walls = db.query(Wall).filter(Wall.room_id == room.id, Wall.is_deleted.is_(False)).order_by(Wall.created_at, Wall.id).all()
+    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls]), Element.is_deleted.is_(False)).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     return PlainTextResponse(result.svg_plan, media_type="image/svg+xml")
 
 @router.post("/{project_id}/versions", status_code=201)
 def create_drawing_version(project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_project_and_check(project_id, db, user)
-    room = db.query(Room).filter(Room.project_id == project_id).first()
+    room = db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
     if not room:
         raise HTTPException(status_code=404, detail="No rooms")
-    walls = db.query(Wall).filter(Wall.room_id == room.id).order_by(Wall.created_at, Wall.id).all()
-    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all() if walls else []
+    walls = db.query(Wall).filter(Wall.room_id == room.id, Wall.is_deleted.is_(False)).order_by(Wall.created_at, Wall.id).all()
+    elements = db.query(Element).filter(Element.wall_id.in_([w.id for w in walls]), Element.is_deleted.is_(False)).all() if walls else []
     result = walls_and_elements_from_room(room, walls, elements)
     if result.errors:
         raise HTTPException(status_code=400, detail={"message": "Cannot version with geometry errors", "errors": [{"code": e.code, "message": e.message} for e in result.errors]})

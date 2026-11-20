@@ -128,3 +128,15 @@ def test_webhook_rejects_bool_overflow_and_oversized_body(tmp_path,monkeypatch):
         for value in [True,-1,2**100,'1']:
             assert client.post('/webhook',headers=headers,json={'update_id':value}).status_code==422
         assert client.post('/webhook',headers=headers,content=b'x'*(1024*1024+1)).status_code==413
+
+
+def test_worker_sqlite_enforces_foreign_keys(tmp_path):
+    import pytest
+    worker=Worker(config(tmp_path),None)
+    try:
+        assert worker.db.execute('PRAGMA foreign_keys').fetchone()[0]==1
+        worker.db.execute('CREATE TABLE delivery_events (id INTEGER PRIMARY KEY, delivery_id TEXT NOT NULL, FOREIGN KEY(delivery_id) REFERENCES deliveries(id))')
+        with pytest.raises(sqlite3.IntegrityError):
+            worker.db.execute('INSERT INTO delivery_events(delivery_id) VALUES (?)',('missing-delivery',))
+    finally:
+        worker.db.close()

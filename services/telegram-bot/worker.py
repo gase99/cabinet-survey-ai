@@ -43,6 +43,7 @@ class Worker:
         self.config,self.client=config,client
         Path(config.database).parent.mkdir(parents=True,exist_ok=True)
         self.db=sqlite3.connect(config.database)
+        self.db.execute('PRAGMA foreign_keys = ON')
         self.db.execute('CREATE TABLE IF NOT EXISTS updates (id INTEGER PRIMARY KEY, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT "pending", attempts INTEGER NOT NULL DEFAULT 0, due REAL NOT NULL DEFAULT 0)')
         self.db.execute('CREATE TABLE IF NOT EXISTS deliveries (id TEXT PRIMARY KEY, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT "pending", attempts INTEGER NOT NULL DEFAULT 0, due REAL NOT NULL DEFAULT 0, message_id TEXT)')
         self.db.commit()

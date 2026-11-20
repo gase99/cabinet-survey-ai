@@ -14,7 +14,7 @@ def test_rest_create_rejects_invalid_vertical_bounds_and_resize_preserves_elemen
     assert client.post(url,headers=auth_headers,json=data).status_code==400
     data.update(offset_mm=1800,sill_mm=900)
     assert client.post(url,headers=auth_headers,json=data).status_code==201
-    assert client.put(f'/api/v1/walls/{wall}',headers=auth_headers,json={'length_mm':2000}).status_code==400
+    assert client.put(f'/api/v1/walls/{wall}',headers=auth_headers,json={'length_mm':2000,'version':1}).status_code==400
     assert client.get(f'/api/v1/walls/{wall}',headers=auth_headers).json()['length_mm']==3000
 
 

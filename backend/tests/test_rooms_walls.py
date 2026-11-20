@@ -49,7 +49,7 @@ def test_room_wall_element_full_flow(client, auth_headers):
     assert client.post(f"/api/v1/drawings/{pid}/versions", headers=auth_headers).status_code == 409
     assert client.post(f"/api/v1/elements/{gas_id}/approve", headers=auth_headers).status_code == 409
     # Complete gas pipe dimensions and explicitly approve all walls and elements
-    completed_gas = client.put(f"/api/v1/elements/{gas_id}", headers=auth_headers, json={"height_mm": 2400, "sill_mm": 0})
+    completed_gas = client.put(f"/api/v1/elements/{gas_id}", headers=auth_headers, json={"height_mm": 2400, "sill_mm": 0, "version": 1})
     assert completed_gas.status_code == 200
     assert completed_gas.json()["review_status"] == "needs_review"
     for wid in wall_ids:

@@ -20,7 +20,7 @@ def test_project_crud(client, auth_headers):
     assert any(x["id"]==pid for x in s.json())
 
     # Update
-    u = client.put(f"/api/v1/projects/{pid}", headers=auth_headers, json={"title": "Kitchen Remodel Updated", "status": "in_progress"})
+    u = client.put(f"/api/v1/projects/{pid}", headers=auth_headers, json={"title": "Kitchen Remodel Updated", "status": "in_progress", "version": 1})
     assert u.status_code == 200
     assert u.json()["title"] == "Kitchen Remodel Updated"
     assert u.json()["version"] == 2
@@ -69,5 +69,5 @@ def test_project_update_rejects_foreign_customer(client,auth_headers):
     foreign={'Authorization':f'Bearer {token}'}
     customer=client.post('/api/v1/customers',headers=foreign,json={'name':'Private fixture'}).json()['id']
     project=client.post('/api/v1/projects',headers=auth_headers,json={'title':'Owned'}).json()['id']
-    assert client.put(f'/api/v1/projects/{project}',headers=auth_headers,json={'customer_id':customer}).status_code==400
+    assert client.put(f'/api/v1/projects/{project}',headers=auth_headers,json={'customer_id':customer,'version':1}).status_code==400
     assert client.get(f'/api/v1/projects/{project}',headers=auth_headers).json()['customer_id'] is None

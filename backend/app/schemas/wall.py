@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
 from datetime import datetime
+from pydantic import BaseModel, Field
+
 
 class WallCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
@@ -12,8 +13,9 @@ class WallCreate(BaseModel):
     source: str = Field(default="manual", pattern="^(manual|sketch_ai|voice_ai|import)$")
     confidence: float | None = Field(default=None, ge=0, le=1)
 
+
 class WallUpdate(BaseModel):
-    label: str | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=100)
     length_mm: int | None = Field(strict=True, default=None, ge=1, le=50000)
     height_mm: int | None = Field(strict=True, default=None, ge=1, le=10000)
     start_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
@@ -21,6 +23,9 @@ class WallUpdate(BaseModel):
     end_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     end_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete)$")
+    version: int | None = Field(strict=True, default=None, ge=1)
+    base_version: int | None = Field(strict=True, default=None, ge=1)
+
 
 class WallOut(BaseModel):
     id: str
@@ -38,6 +43,8 @@ class WallOut(BaseModel):
     source: str
     confidence: float | None
     version: int
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}

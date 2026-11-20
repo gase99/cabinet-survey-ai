@@ -20,9 +20,10 @@ def test_protected_without_token(client):
     assert r.status_code == 401
 
 def test_update_profile(client, auth_headers):
-    r = client.put("/api/v1/auth/me", headers=auth_headers, json={"display_name": "New Name"})
+    r = client.put("/api/v1/auth/me", headers=auth_headers, json={"display_name": "New Name", "version": 1})
     assert r.status_code == 200
     assert r.json()["display_name"] == "New Name"
+    assert r.json()["version"] == 2
 
 def test_change_password(client):
     email="changepass@example.com"

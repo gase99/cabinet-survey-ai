@@ -17,7 +17,7 @@ router = APIRouter(prefix="/exports", tags=["exports"])
 
 def get_project_and_check(project_id: str, db, user):
     p = db.get(Project, project_id)
-    if not p or p.owner_id != user.id:
+    if not p or p.owner_id != user.id or p.is_deleted:
         raise HTTPException(status_code=404, detail="Project not found")
     return p
 
@@ -102,7 +102,7 @@ def create_export(
 
     rooms = (
         db.query(Room)
-        .filter(Room.project_id == project_id)
+        .filter(Room.project_id == project_id, Room.is_deleted.is_(False))
         .order_by(Room.created_at, Room.id)
         .all()
     )
@@ -117,12 +117,17 @@ def create_export(
     for room in rooms:
         walls = (
             db.query(Wall)
-            .filter(Wall.room_id == room.id)
+            .filter(Wall.room_id == room.id, Wall.is_deleted.is_(False))
             .order_by(Wall.created_at, Wall.id)
             .all()
         )
         elements = (
-            db.query(Element).filter(Element.wall_id.in_([w.id for w in walls])).all()
+            db.query(Element)
+            .filter(
+                Element.wall_id.in_([w.id for w in walls]),
+                Element.is_deleted.is_(False),
+            )
+            .all()
             if walls
             else []
         )

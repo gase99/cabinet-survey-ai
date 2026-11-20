@@ -11,7 +11,7 @@ def test_approval_workflow(client, auth_headers):
     a = client.post(f"/api/v1/walls/{wid}/approve", headers=auth_headers)
     assert a.json()["review_status"] == "approved"
     # Edit approved -> should go back to needs_review
-    e = client.put(f"/api/v1/walls/{wid}", headers=auth_headers, json={"length_mm": 3300})
+    e = client.put(f"/api/v1/walls/{wid}", headers=auth_headers, json={"length_mm": 3300, "version": a.json()["version"]})
     assert e.json()["review_status"] == "needs_review"
     # Re-approve
     a2 = client.post(f"/api/v1/walls/{wid}/approve", headers=auth_headers)

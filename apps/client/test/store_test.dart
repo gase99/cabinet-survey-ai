@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cabinet_survey_ai/core/store.dart';
@@ -79,6 +80,44 @@ void main() {
     expect((await store.get('w1'))!['review_status'],'approved');
     await store.save('wall',{'id':'w1','length_mm':3200});
     expect((await store.get('w1'))!['review_status'],'needs_review');
+    await db.close();
+  });
+
+  test('SQLite foreign_keys pragma is enabled and FK violations fail',() async {
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
+    final store=LocalStore(db,'one');
+    final fkPragma=await db.rawQuery('PRAGMA foreign_keys');
+    expect(fkPragma.single.values.single,1);
+    await expectLater(
+      store.photo('missing-project','sketch.png',Uint8List.fromList([1,2,3])),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      db.insert('revisions',{'owner':'one','entity_id':'missing-entity','body':'{}'}),
+      throwsA(isA<DatabaseException>()),
+    );
+    await store.save('project',{'id':'p1','title':'Valid Project','status':'draft'});
+    await store.photo('p1','sketch.png',Uint8List.fromList([1,2,3]));
+    await store.save('project',{'id':'p1','title':'Updated Valid Project','status':'draft'});
+    expect((await store.photos('p1')).length,1);
+    await db.close();
+  });
+
+  test('soft deletes queue tombstone operations and applyTombstone hides deleted rows',() async {
+    final db=await LocalStore.open(testFactory:databaseFactoryFfiNoIsolate,path:inMemoryDatabasePath);
+    final store=LocalStore(db,'one');
+    await store.cache('customer',{'id':'c1','name':'Client 1','version':1});
+    await store.cache('customer',{'id':'c2','name':'Client 2','version':1});
+    await store.delete('customer','c1');
+    expect(await store.get('c1'),isNull);
+    expect((await store.get('c1',includeDeleted:true))!['is_deleted'],isTrue);
+    expect((await store.list('customer')).map((c) => c['id']),['c2']);
+    final q=await store.queue();
+    expect(q.single['operation']['operation'],'delete');
+    expect(q.single['operation']['base_version'],1);
+    await store.applyTombstone('customer',{'entity_id':'c2','version':2,'deleted_at':'2026-11-20T00:00:00Z'});
+    expect(await store.list('customer'),isEmpty);
+    expect((await store.tombstones('customer')).length,2);
     await db.close();
   });
 

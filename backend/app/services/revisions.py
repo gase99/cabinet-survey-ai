@@ -92,7 +92,10 @@ def derive_updated_review_status(
 
 def measurement_payload(entity_type: str, entity_or_values: Any) -> dict[str, Any]:
     fields = WALL_PAYLOAD_FIELDS if entity_type == "wall" else ELEMENT_PAYLOAD_FIELDS
-    return {field: _get_val(entity_or_values, field) for field in fields}
+    payload = {field: _get_val(entity_or_values, field) for field in fields}
+    if bool(_get_val(entity_or_values, "is_deleted")):
+        payload["is_deleted"] = True
+    return payload
 
 
 def resolve_project_id(db: Session, entity_type: str, entity: Wall | Element) -> str:

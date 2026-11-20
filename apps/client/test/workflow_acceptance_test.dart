@@ -56,7 +56,7 @@ void main() {
       final other=Api(baseUrl:url);
       final tokens=await other.request('POST','auth/login',{'email':address,'password':password}) as Json;
       other.token=tokens['access_token'] as String;
-      await other.request('PUT','elements/$window',{'offset_mm':700});
+      await other.request('PUT','elements/$window',{'offset_mm':700,'version':local['version']});
       await reopened.sync();
       final conflict=(await reopened.store.queue()).singleWhere((r) => r['state']=='conflict');
       expect((await reopened.store.get(window))!['offset_mm'],600);
@@ -65,6 +65,13 @@ void main() {
       await reopened.sync();
       final resolved=(await reopened.store.get(window))!;
       expect(resolved['review_status'],'needs_review');
+      final tempCustomer=await other.request('POST','customers',{'name':'Temp Client'}) as Json;
+      await reopened.sync();
+      expect(await reopened.store.get(tempCustomer['id'] as String),isNotNull);
+      await other.request('DELETE','customers/${tempCustomer['id']}');
+      await reopened.sync();
+      expect(await reopened.store.get(tempCustomer['id'] as String),isNull);
+      expect((await reopened.store.get(tempCustomer['id'] as String,includeDeleted:true))!['is_deleted'],isTrue);
       for(final id in ids) {
         final wallRecord=(await reopened.store.get(id))!;
         await reopened.store.save('wall',{...wallRecord,'review_status':'approved'});

@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.db_models import User, Project, Room, Wall, Element
+from app.models.db_models import Element, Project, Room, User, Wall
 from app.schemas.revision import MeasurementRevisionOut
-from app.schemas.wall import WallCreate, WallUpdate, WallOut
+from app.schemas.wall import WallCreate, WallOut, WallUpdate
 from app.services.audit import log_audit
+from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
 from app.services.revisions import (
     append_revision,
     approve_entity,
@@ -14,28 +15,33 @@ from app.services.revisions import (
     ensure_baseline_revision,
     list_revisions,
 )
+from app.services.tombstones import soft_delete_wall
 
 router = APIRouter(tags=["walls"])
 
 
-def get_room_and_check(room_id: str, db: Session, user: User):
+def get_room_and_check(room_id: str, db: Session, user: User, *, allow_deleted: bool = False):
     room = db.get(Room, room_id)
-    if not room:
+    if not room or (room.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Room not found")
     project = db.get(Project, room.project_id)
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
+    if project.is_deleted and not allow_deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
     return room, project
 
 
-def get_wall_and_check(wall_id: str, db: Session, user: User):
+def get_wall_and_check(wall_id: str, db: Session, user: User, *, allow_deleted: bool = False):
     wall = db.get(Wall, wall_id)
-    if not wall:
+    if not wall or (wall.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Wall not found")
     room = db.get(Room, wall.room_id)
     project = db.get(Project, room.project_id)
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
+    if (room.is_deleted or project.is_deleted) and not allow_deleted:
+        raise HTTPException(status_code=404, detail="Wall not found")
     return wall, room, project
 
 
@@ -43,10 +49,11 @@ def get_wall_and_check(wall_id: str, db: Session, user: User):
 def create_wall(
     room_id: str,
     payload: WallCreate,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    room, project = get_room_and_check(room_id, db, user)
+    _, project = get_room_and_check(room_id, db, user)
     values = payload.model_dump()
     initial_status = derive_initial_review_status("wall", values)
     wall = Wall(
@@ -74,8 +81,6 @@ def create_wall(
         change_reason="create",
         user_id=user.id,
     )
-    project.version += 1
-    room.version += 1
     db.commit()
     db.refresh(wall)
     log_audit(
@@ -86,26 +91,34 @@ def create_wall(
         entity_type="wall",
         entity_id=wall.id,
     )
+    set_etag(response, wall.version)
     return wall
 
 
 @router.get("/rooms/{room_id}/walls", response_model=list[WallOut])
 def list_walls(
     room_id: str,
+    include_deleted: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    get_room_and_check(room_id, db, user)
-    return db.query(Wall).filter(Wall.room_id == room_id).order_by(Wall.label).all()
+    get_room_and_check(room_id, db, user, allow_deleted=include_deleted)
+    q = db.query(Wall).filter(Wall.room_id == room_id)
+    if not include_deleted:
+        q = q.filter(Wall.is_deleted.is_(False))
+    return q.order_by(Wall.label).all()
 
 
 @router.get("/walls/{wall_id}", response_model=WallOut)
 def get_wall(
     wall_id: str,
+    response: Response,
+    include_deleted: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    wall, _, _ = get_wall_and_check(wall_id, db, user)
+    wall, _, _ = get_wall_and_check(wall_id, db, user, allow_deleted=include_deleted)
+    set_etag(response, wall.version)
     return wall
 
 
@@ -115,7 +128,7 @@ def get_wall_revisions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    wall, _, _ = get_wall_and_check(wall_id, db, user)
+    wall, _, _ = get_wall_and_check(wall_id, db, user, allow_deleted=True)
     return list_revisions(db, "wall", wall.id)
 
 
@@ -123,21 +136,41 @@ def get_wall_revisions(
 def update_wall(
     wall_id: str,
     payload: WallUpdate,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    wall, room, project = get_wall_and_check(wall_id, db, user)
-    data = payload.model_dump(exclude_unset=True)
+    wall, _, project = get_wall_and_check(wall_id, db, user)
+    data = payload.model_dump(exclude_unset=True, exclude={"version", "base_version"})
     if "review_status" in data and data["review_status"] is None:
         raise HTTPException(status_code=422, detail="review_status cannot be null")
 
+    merged_preview = {c.name: getattr(wall, c.name) for c in wall.__table__.columns}
+    merged_preview.update(data)
+    try:
+        WallCreate.model_validate(merged_preview)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid wall dimensions")
+
+    expected = resolve_expected_version(
+        if_match=if_match,
+        version=payload.version,
+        base_version=payload.base_version,
+    )
+    wall = lock_and_verify_version(db, Wall, wall_id, expected)
     merged = {c.name: getattr(wall, c.name) for c in wall.__table__.columns}
     merged.update(data)
     try:
         WallCreate.model_validate(merged)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid wall dimensions")
-    for element in db.query(Element).filter_by(wall_id=wall.id).all():
+
+    for element in (
+        db.query(Element)
+        .filter(Element.wall_id == wall.id, Element.is_deleted.is_(False))
+        .all()
+    ):
         if (
             element.offset_mm + element.width_mm > merged["length_mm"]
             or (element.sill_mm or 0) + (element.height_mm or 0) > merged["height_mm"]
@@ -163,8 +196,6 @@ def update_wall(
     wall.approved_by = None
     wall.approved_at = None
     wall.version += 1
-    project.version += 1
-    room.version += 1
     append_revision(
         db,
         project_id=project.id,
@@ -184,6 +215,7 @@ def update_wall(
         entity_id=wall.id,
         detail=str(data),
     )
+    set_etag(response, wall.version)
     return wall
 
 
@@ -193,29 +225,28 @@ def delete_wall(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    wall, room, project = get_wall_and_check(wall_id, db, user)
-    db.delete(wall)
-    project.version += 1
-    room.version += 1
+    wall, _, project = get_wall_and_check(wall_id, db, user)
+    soft_delete_wall(db, wall=wall, project_id=project.id, user_id=user.id)
     db.commit()
     log_audit(
         db,
         user_id=user.id,
         project_id=project.id,
-        action="wall.delete",
+        action="wall.soft_delete",
         entity_type="wall",
         entity_id=wall.id,
     )
-    return {"status": "deleted"}
+    return {"status": "deleted", "id": wall.id, "is_deleted": True, "version": wall.version}
 
 
 @router.post("/walls/{wall_id}/approve", response_model=WallOut)
 def approve_wall(
     wall_id: str,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    wall, room, project = get_wall_and_check(wall_id, db, user)
+    wall, _, project = get_wall_and_check(wall_id, db, user)
     try:
         approve_entity(
             db,
@@ -226,8 +257,6 @@ def approve_wall(
         )
     except ValueError as err:
         raise HTTPException(status_code=409, detail=str(err))
-    project.version += 1
-    room.version += 1
     db.commit()
     db.refresh(wall)
     log_audit(
@@ -239,4 +268,5 @@ def approve_wall(
         entity_id=wall.id,
         detail=f"approved_by={user.id} approved_at={wall.approved_at.isoformat()}",
     )
+    set_etag(response, wall.version)
     return wall

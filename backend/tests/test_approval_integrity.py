@@ -230,7 +230,7 @@ def test_approve_flow_records_who_and_when_and_rejects_incomplete(client, auth_h
     updated = client.put(
         f"/api/v1/elements/{elem_id}",
         headers=auth_headers,
-        json={"height_mm": 1100, "sill_mm": 850},
+        json={"height_mm": 1100, "sill_mm": 850, "version": 1},
     )
     assert updated.status_code == 200
     assert updated.json()["review_status"] == "needs_review"
@@ -239,7 +239,7 @@ def test_approve_flow_records_who_and_when_and_rejects_incomplete(client, auth_h
     put_wall_approve = client.put(
         f"/api/v1/walls/{wall_id}",
         headers=auth_headers,
-        json={"review_status": "approved"},
+        json={"review_status": "approved", "version": 1},
     )
     assert put_wall_approve.status_code == 422
     assert (
@@ -252,7 +252,7 @@ def test_approve_flow_records_who_and_when_and_rejects_incomplete(client, auth_h
     put_elem_approve = client.put(
         f"/api/v1/elements/{elem_id}",
         headers=auth_headers,
-        json={"review_status": "approved"},
+        json={"review_status": "approved", "version": updated.json()["version"]},
     )
     assert put_elem_approve.status_code == 422
     assert (
@@ -299,7 +299,7 @@ def test_editing_approved_measurement_appends_revision_and_preserves_approved_hi
     edited = client.put(
         f"/api/v1/walls/{wall_id}",
         headers=auth_headers,
-        json={"length_mm": 4150, "end_x_mm": 4150},
+        json={"length_mm": 4150, "end_x_mm": 4150, "version": approved["version"]},
     )
     assert edited.status_code == 200
     assert edited.json()["review_status"] == "needs_review"

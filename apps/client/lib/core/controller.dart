@@ -120,6 +120,14 @@ class SurveyController extends ChangeNotifier {
       }
       if (projects.length < 100) break;
     }
+    final pull = await api.request('GET', 'sync/pull') as Json;
+    for (final rawTombstone in (pull['tombstones'] as List? ?? const [])) {
+      final tombstone = rawTombstone as Json;
+      final entityId = tombstone['entity_id'] as String;
+      if (!dirty.contains(entityId)) {
+        await store.applyTombstone(tombstone['entity_type'] as String, tombstone);
+      }
+    }
     notifyListeners();
   }
 }

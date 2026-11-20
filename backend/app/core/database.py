@@ -1,6 +1,17 @@
-from sqlalchemy import create_engine
+import sqlite3
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.core.config import settings
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.close()
+
 
 # SQLite needs check_same_thread False for FastAPI
 connect_args = {}
@@ -16,8 +27,10 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 
+
 class Base(DeclarativeBase):
     pass
+
 
 def get_db():
     db = SessionLocal()
@@ -25,6 +38,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 def init_db():
     # Import models to register metadata

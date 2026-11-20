@@ -57,7 +57,7 @@ def test_export_rejects_invalid_or_unapproved_geometry(client, auth_headers):
     for wall in ids:
         assert client.post(f'/api/v1/walls/{wall}/approve',headers=auth_headers).status_code==200
     assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==201
-    client.put(f'/api/v1/walls/{ids[0]}',headers=auth_headers,json={'length_mm':2500})
+    client.put(f'/api/v1/walls/{ids[0]}',headers=auth_headers,json={'length_mm':2500,'version':2})
     assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==400
 
 
