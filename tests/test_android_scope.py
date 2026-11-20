@@ -80,3 +80,13 @@ def test_three_telegram_credentials_remain_distinct():
     assert 'location ^~ /api/v1/telegram/internal/ { return 404; }' in gateway
     assert 'location = /telegram/webhook' in gateway
     assert 'try_files' not in gateway and 'root /usr/share' not in gateway
+
+
+def test_flutter_client_uses_sync_as_sole_domain_write_path():
+    for path in (CLIENT / 'lib').rglob('*.dart'):
+        text = path.read_text()
+        assert not re.search(r"request\(\s*['\"]PUT['\"]", text), f"Direct REST PUT found in {path}"
+        assert not re.search(r"request\(\s*['\"]DELETE['\"]", text), f"Direct REST DELETE found in {path}"
+    sync_doc = (ROOT / 'docs/offline-sync.md').read_text()
+    assert 'POST /api/v1/sync/push' in sync_doc and 'only' in sync_doc
+

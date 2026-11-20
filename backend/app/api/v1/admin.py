@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_admin
 from app.models.db_models import AIConfig, AIUsageLog, AuditEvent, User
-from app.services.audit import log_audit
+from app.services.audit import log_audit, serialize_audit_event
 from app.services.concurrency import lock_and_verify_version, parse_if_match, resolve_expected_version, set_etag
 from app.services.provider_config import encrypt_key
 
@@ -183,27 +183,36 @@ def ai_usage(
 
 
 @router.get("/audit")
+@router.get("/audit-events")
 def audit(
     limit: int = 100,
+    offset: int = 0,
+    project_id: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    action: str | None = None,
+    actor_id: str | None = None,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    q = db.query(AuditEvent)
+    if project_id:
+        q = q.filter(AuditEvent.project_id == project_id)
+    if entity_type:
+        q = q.filter(AuditEvent.entity_type == entity_type)
+    if entity_id:
+        q = q.filter(AuditEvent.entity_id == entity_id)
+    if action:
+        q = q.filter(AuditEvent.action == action)
+    if actor_id:
+        q = q.filter(AuditEvent.user_id == actor_id)
     events = (
-        db.query(AuditEvent).order_by(desc(AuditEvent.created_at)).limit(limit).all()
+        q.order_by(desc(AuditEvent.created_at), desc(AuditEvent.id))
+        .offset(max(0, offset))
+        .limit(min(max(1, limit), 500))
+        .all()
     )
-    return [
-        {
-            "id": e.id,
-            "action": e.action,
-            "user_id": e.user_id,
-            "project_id": e.project_id,
-            "entity_type": e.entity_type,
-            "entity_id": e.entity_id,
-            "detail": e.detail,
-            "created_at": e.created_at,
-        }
-        for e in events
-    ]
+    return [serialize_audit_event(e) for e in events]
 
 
 @router.get("/health")
@@ -212,5 +221,5 @@ def admin_health(admin: User = Depends(require_admin)):
         "env": settings.app_env,
         "ai_provider": settings.ai_provider,
         "database_url_scheme": settings.database_url.split(":")[0],
-        "telegram_configured": bool(settings.telegram_bot_token),
+        "telegram_configured": bool(settings.telegram_worker_secret),
     }

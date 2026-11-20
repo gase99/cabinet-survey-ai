@@ -154,7 +154,7 @@ class _WorkspaceState extends State<Workspace> {
       if((await c.store.queue()).any((r) => r['state']!='applied' && r['state']!='resolved')) throw StateError('Resolve pending changes before exporting');
       final format=(value['format'] as String).toLowerCase(), layout=(value['layout'] as String).toUpperCase();
       if(!['pdf','png'].contains(format) || !['A4','A3'].contains(layout)) throw const FormatException('Choose pdf/png and A4/A3');
-      final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout}) as Json;
+      final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout},{'Idempotency-Key':uuid.v4()}) as Json;
       final bytes=await c.api.bytes('exports/${job['id']}/download');
       final saved=await const DocumentSaver().save(name:'survey-${project['id']}.$format',bytes:bytes,pdf:format=='pdf');
       if(saved && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tr(context,'Document saved'))));
@@ -213,7 +213,7 @@ class _WorkspaceState extends State<Workspace> {
         children:[for(final raw in jobs) if((raw as Json)['status']=='done') SimpleDialogOption(
           onPressed:() => Navigator.pop(d,raw['id'] as String),child:Text('${raw['format']} ${raw['layout']} · ${raw['created_at']}'))]));
       if(selected==null) return;
-      final receipt=await c.api.request('POST','telegram/send',{'export_job_id':selected});
+      final receipt=await c.api.request('POST','telegram/send',{'export_job_id':selected},{'Idempotency-Key':uuid.v4()});
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$receipt')));
     });
   }

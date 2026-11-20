@@ -1,6 +1,6 @@
 import os
 from types import SimpleNamespace
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -9,7 +9,8 @@ from app.models.db_models import User, Project, Room, Wall, Element, ExportJob
 from app.schemas.drawing import ExportRequest
 from app.services.geometry_service import walls_and_elements_from_room
 from app.services.export_service import render_views_pdf, render_views_png
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
+from app.services.idempotency import check_idempotency, store_idempotency_result
 from app.services.revisions import missing_element_dimensions, missing_wall_dimensions
 
 router = APIRouter(prefix="/exports", tags=["exports"])
@@ -86,9 +87,20 @@ def _flagged_element_proxy(elem: Element, issues: list[str]):
 def create_export(
     project_id: str,
     payload: ExportRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    replay, req_hash, expired_rec = check_idempotency(
+        db,
+        owner_id=user.id,
+        scope="exports.create",
+        key=idempotency_key,
+        canonical_payload={"project_id": project_id, **payload.model_dump(mode="json")},
+    )
+    if replay is not None:
+        return replay
+
     project = get_project_and_check(project_id, db, user)
     if payload.format not in ("pdf", "png"):
         raise HTTPException(status_code=400, detail="Invalid format")
@@ -306,17 +318,7 @@ def create_export(
             )
         job.file_path = path
         job.status = "done"
-        db.commit()
-        log_audit(
-            db,
-            user_id=user.id,
-            project_id=project_id,
-            action="export.create",
-            entity_type="export_job",
-            entity_id=job.id,
-            detail=f"{payload.format} {payload.layout}",
-        )
-        return {
+        response_body = {
             "id": job.id,
             "status": job.status,
             "format": job.format,
@@ -325,6 +327,34 @@ def create_export(
             "excluded_items": excluded_items,
             "flagged_items": flagged_items,
         }
+        store_idempotency_result(
+            db,
+            owner_id=user.id,
+            scope="exports.create",
+            key=idempotency_key,
+            request_hash=req_hash,
+            status_code=201,
+            response_body=response_body,
+            existing_expired=expired_rec,
+        )
+        log_audit(
+            db,
+            user_id=user.id,
+            project_id=project_id,
+            action="export.create",
+            entity_type="export_job",
+            entity_id=job.id,
+            old_values=None,
+            new_values={
+                **entity_snapshot("export_job", job),
+                "excluded_items": excluded_items,
+                "flagged_items": flagged_items,
+            },
+            detail=f"{payload.format} {payload.layout}",
+            commit=False,
+        )
+        db.commit()
+        return response_body
     except Exception:
         job.status = "failed"
         job.error_message = "Drawing rendering failed"

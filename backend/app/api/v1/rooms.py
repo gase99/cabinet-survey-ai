@@ -4,7 +4,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Project, Room, User
 from app.schemas.room import RoomCreate, RoomOut, RoomUpdate
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
 from app.services.tombstones import soft_delete_room
 
@@ -33,6 +33,8 @@ def create_room(
         action="room.create",
         entity_type="room",
         entity_id=room.id,
+        old_values=None,
+        new_values=entity_snapshot("room", room),
     )
     set_etag(response, room.version)
     return room
@@ -95,6 +97,7 @@ def update_room(
         base_version=payload.base_version,
     )
     room = lock_and_verify_version(db, Room, room_id, expected)
+    old_snap = entity_snapshot("room", room)
     data = payload.model_dump(exclude_unset=True, exclude={"version", "base_version"})
     for k, v in data.items():
         setattr(room, k, v)
@@ -108,6 +111,8 @@ def update_room(
         action="room.update",
         entity_type="room",
         entity_id=room.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("room", room),
     )
     set_etag(response, room.version)
     return room
@@ -127,12 +132,4 @@ def delete_room(
         raise HTTPException(status_code=403, detail="Forbidden")
     soft_delete_room(db, room=room, project_id=project.id, user_id=user.id)
     db.commit()
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=project.id,
-        action="room.soft_delete",
-        entity_type="room",
-        entity_id=room.id,
-    )
     return {"status": "deleted", "id": room.id, "is_deleted": True, "version": room.version}

@@ -37,10 +37,11 @@ class Api {
         base = validateApiBase(baseUrl ?? const String.fromEnvironment('API_BASE_URL',
             defaultValue: 'http://10.0.2.2:8000/api/v1/'), release: kReleaseMode);
 
-  Future<http.Response> _send(String method, String path, Json? body) async {
+  Future<http.Response> _send(String method, String path, Json? body, {Map<String, String>? headers}) async {
     final request = http.Request(method, base.resolve(path));
     request.headers['Content-Type'] = 'application/json';
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    if (headers != null) request.headers.addAll(headers);
     if (body != null) request.body = jsonEncode(body);
     final response = await http.Response.fromStream(
       await client.send(request).timeout(const Duration(seconds: 30)));
@@ -51,8 +52,8 @@ class Api {
     }
     return response;
   }
-  Future<dynamic> request(String method, String path, [Json? body]) async {
-    final response = await _send(method, path, body);
+  Future<dynamic> request(String method, String path, [Json? body, Map<String, String>? headers]) async {
+    final response = await _send(method, path, body, headers: headers);
     return response.body.isEmpty ? null : jsonDecode(utf8.decode(response.bodyBytes));
   }
   /// Deterministic text/spoken-transcript parsing (`ai/parse-text`, form body).

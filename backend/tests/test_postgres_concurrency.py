@@ -77,3 +77,23 @@ def test_postgres_concurrent_rest_put_returns_409_on_stale_version():
             statuses=list(pool.map(put_wall,[1,2]))
         assert sorted(statuses)==[200,409]
         assert client.get(f'/api/v1/walls/{wall}',headers=headers).json()['version']==2
+
+
+def test_postgres_audit_triggers_block_raw_sql_mutation():
+    from sqlalchemy import text
+    from sqlalchemy.exc import DatabaseError
+    from app.models.db_models import AuditEvent
+
+    with TestClient(app) as client:
+        headers=account(client)
+        cust=client.post('/api/v1/customers',headers=headers,json={'name':'PG Trigger Check'}).json()
+    with Session(engine) as db:
+        ev=db.query(AuditEvent).filter(AuditEvent.entity_id==cust['id']).first()
+        assert ev is not None
+        with pytest.raises(DatabaseError):
+            db.execute(text("UPDATE audit_events SET action='tampered' WHERE id=:id"),{'id':ev.id})
+        db.rollback()
+        with pytest.raises(DatabaseError):
+            db.execute(text("DELETE FROM audit_events WHERE id=:id"),{'id':ev.id})
+        db.rollback()
+

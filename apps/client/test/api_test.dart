@@ -51,4 +51,16 @@ void main() {
     await expectLater(api.parseText('x'),throwsA(isA<ApiException>().having((e) => e.status,'status',503)));
     api.close();
   });
+  test('Idempotency-Key header is forwarded on POST requests',() async {
+    String? seenKey;
+    final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async {
+      seenKey=request.headers['Idempotency-Key'];
+      return http.Response(jsonEncode({'id':'job-1','status':'done'}),201);
+    }));
+    api.token='secret-test-token';
+    final res=await api.request('POST','exports/p1',{'format':'pdf','layout':'A4'},{'Idempotency-Key':'idem-123'}) as Map<String,dynamic>;
+    expect(seenKey,'idem-123');
+    expect(res['id'],'job-1');
+    api.close();
+  });
 }

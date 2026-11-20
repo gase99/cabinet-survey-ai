@@ -5,8 +5,9 @@ from app.core.deps import get_current_user
 from app.models.db_models import Element, Project, Room, User, Wall
 from app.schemas.revision import MeasurementRevisionOut
 from app.schemas.wall import WallCreate, WallOut, WallUpdate
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
+from app.services.provenance import bind_observation_to_measurement, sync_linked_observation_approval
 from app.services.revisions import (
     append_revision,
     approve_entity,
@@ -67,12 +68,22 @@ def create_wall(
         end_y_mm=payload.end_y_mm,
         source=payload.source,
         confidence=payload.confidence,
+        source_observation_id=payload.source_observation_id,
         review_status=initial_status,
         approved_by=None,
         approved_at=None,
     )
     db.add(wall)
     db.flush()
+    if payload.source_observation_id:
+        bind_observation_to_measurement(
+            db,
+            observation_id=payload.source_observation_id,
+            user_id=user.id,
+            project_id=project.id,
+            entity_type="wall",
+            entity_id=wall.id,
+        )
     append_revision(
         db,
         project_id=project.id,
@@ -81,8 +92,6 @@ def create_wall(
         change_reason="create",
         user_id=user.id,
     )
-    db.commit()
-    db.refresh(wall)
     log_audit(
         db,
         user_id=user.id,
@@ -90,7 +99,12 @@ def create_wall(
         action="wall.create",
         entity_type="wall",
         entity_id=wall.id,
+        old_values=None,
+        new_values=entity_snapshot("wall", wall),
+        commit=False,
     )
+    db.commit()
+    db.refresh(wall)
     set_etag(response, wall.version)
     return wall
 
@@ -187,6 +201,17 @@ def update_wall(
         entity=wall,
         fallback_user_id=user.id,
     )
+    old_snap = entity_snapshot("wall", wall)
+    was_approved = wall.review_status == "approved"
+    if data.get("source_observation_id"):
+        bind_observation_to_measurement(
+            db,
+            observation_id=data["source_observation_id"],
+            user_id=user.id,
+            project_id=project.id,
+            entity_type="wall",
+            entity_id=wall.id,
+        )
     for k, v in data.items():
         if k != "review_status":
             setattr(wall, k, v)
@@ -196,6 +221,9 @@ def update_wall(
     wall.approved_by = None
     wall.approved_at = None
     wall.version += 1
+    sync_linked_observation_approval(
+        db, observation_id=wall.source_observation_id, approved=False
+    )
     append_revision(
         db,
         project_id=project.id,
@@ -204,17 +232,20 @@ def update_wall(
         change_reason="update",
         user_id=user.id,
     )
-    db.commit()
-    db.refresh(wall)
     log_audit(
         db,
         user_id=user.id,
         project_id=project.id,
-        action="wall.update",
+        action="wall.edit_after_approval" if was_approved else "wall.update",
         entity_type="wall",
         entity_id=wall.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("wall", wall),
         detail=str(data),
+        commit=False,
     )
+    db.commit()
+    db.refresh(wall)
     set_etag(response, wall.version)
     return wall
 
@@ -228,14 +259,6 @@ def delete_wall(
     wall, _, project = get_wall_and_check(wall_id, db, user)
     soft_delete_wall(db, wall=wall, project_id=project.id, user_id=user.id)
     db.commit()
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=project.id,
-        action="wall.soft_delete",
-        entity_type="wall",
-        entity_id=wall.id,
-    )
     return {"status": "deleted", "id": wall.id, "is_deleted": True, "version": wall.version}
 
 
@@ -247,6 +270,7 @@ def approve_wall(
     user: User = Depends(get_current_user),
 ):
     wall, _, project = get_wall_and_check(wall_id, db, user)
+    old_snap = entity_snapshot("wall", wall)
     try:
         approve_entity(
             db,
@@ -257,8 +281,9 @@ def approve_wall(
         )
     except ValueError as err:
         raise HTTPException(status_code=409, detail=str(err))
-    db.commit()
-    db.refresh(wall)
+    sync_linked_observation_approval(
+        db, observation_id=wall.source_observation_id, approved=True
+    )
     log_audit(
         db,
         user_id=user.id,
@@ -266,7 +291,12 @@ def approve_wall(
         action="wall.approve",
         entity_type="wall",
         entity_id=wall.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("wall", wall),
         detail=f"approved_by={user.id} approved_at={wall.approved_at.isoformat()}",
+        commit=False,
     )
+    db.commit()
+    db.refresh(wall)
     set_etag(response, wall.version)
     return wall

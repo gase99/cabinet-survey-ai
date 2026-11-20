@@ -6,7 +6,9 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.config import settings
 from app.models.db_models import User, PairingCode, TelegramDelivery, ExportJob
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
+from app.services.idempotency import check_idempotency, store_idempotency_result
+from app.services.tombstones import soft_delete_telegram_unlink
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
@@ -65,9 +67,21 @@ def verify_pairing(payload: dict, db: Session = Depends(get_db), x_webhook_secre
         raise HTTPException(status_code=404, detail="User not found")
     user.telegram_chat_id = str(chat_id)
     user.telegram_username = username
+    user.version += 1
+    pc.telegram_chat_id = str(chat_id)
     pc.used = True
+    pc.version += 1
     db.commit()
-    log_audit(db, user_id=user.id, project_id=None, action="telegram.linked", entity_type="user", entity_id=user.id)
+    log_audit(
+        db,
+        user_id=user.id,
+        project_id=None,
+        action="telegram.linked",
+        entity_type="telegram_link",
+        entity_id=pc.id,
+        old_values={"linked": False},
+        new_values=entity_snapshot("telegram_link", pc),
+    )
     return {"status": "linked", "user_id": user.id, "telegram_chat_id": chat_id}
 
 @router.get("/link-status")
@@ -76,20 +90,34 @@ def link_status(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 @router.delete("/unlink")
 def unlink(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    db.query(TelegramDelivery).filter_by(owner_id=user.id, status="pending").update({"status": "cancelled"})
-    user.telegram_chat_id = None
-    user.telegram_username = None
+    result = soft_delete_telegram_unlink(db, user=user)
     db.commit()
-    log_audit(db, user_id=user.id, project_id=None, action="telegram.unlinked", entity_type="user", entity_id=user.id)
-    return {"status": "unlinked"}
+    return result
 
 @router.post("/send")
-def send_via_telegram(payload: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def send_via_telegram(
+    payload: dict,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """
     Trigger delivery of an export job to linked Telegram account.
     This endpoint queues delivery; worker or direct Bot API call handles sending.
     The independent worker owns the bot token; this API only queues delivery.
     """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Invalid JSON payload")
+    replay, req_hash, expired_rec = check_idempotency(
+        db,
+        owner_id=user.id,
+        scope="telegram.send",
+        key=idempotency_key,
+        canonical_payload=payload,
+    )
+    if replay is not None:
+        return replay
+
     if not user.telegram_chat_id:
         raise HTTPException(status_code=400, detail="Telegram not linked. Create pairing code first.")
     export_id = payload.get("export_job_id")
@@ -103,16 +131,60 @@ def send_via_telegram(payload: dict, db: Session = Depends(get_db), user: User =
     # Create delivery record
     delivery = TelegramDelivery(owner_id=user.id, project_id=job.project_id, export_job_id=job.id, chat_id=user.telegram_chat_id, status="pending")
     db.add(delivery)
+    db.flush()
+
+    response_body = {"status": "queued", "delivery_id": delivery.id}
+    store_idempotency_result(
+        db,
+        owner_id=user.id,
+        scope="telegram.send",
+        key=idempotency_key,
+        request_hash=req_hash,
+        status_code=200,
+        response_body=response_body,
+        existing_expired=expired_rec,
+    )
+    log_audit(
+        db,
+        user_id=user.id,
+        project_id=job.project_id,
+        action="telegram.deliver_queued",
+        entity_type="telegram_delivery",
+        entity_id=delivery.id,
+        old_values=None,
+        new_values=entity_snapshot("telegram_delivery", delivery),
+        commit=False,
+    )
     db.commit()
     db.refresh(delivery)
-
-    log_audit(db, user_id=user.id, project_id=job.project_id, action="telegram.deliver_queued", entity_type="delivery", entity_id=delivery.id)
-    return {"status": "queued", "delivery_id": delivery.id}
+    return response_body
 
 @router.get("/deliveries")
-def list_deliveries(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    deliveries = db.query(TelegramDelivery).filter(TelegramDelivery.owner_id == user.id).order_by(TelegramDelivery.created_at.desc()).limit(50).all()
-    return [{"id": d.id, "status": d.status, "chat_id": d.chat_id, "message_id": d.message_id, "error": d.error, "created_at": d.created_at, "export_job_id": d.export_job_id, "project_id": d.project_id} for d in deliveries]
+def list_deliveries(
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(TelegramDelivery).filter(TelegramDelivery.owner_id == user.id)
+    if not include_deleted:
+        q = q.filter(TelegramDelivery.is_deleted.is_(False))
+    deliveries = q.order_by(TelegramDelivery.created_at.desc()).limit(50).all()
+    return [
+        {
+            "id": d.id,
+            "status": d.status,
+            "chat_id": d.chat_id,
+            "message_id": d.message_id,
+            "error": d.error,
+            "version": d.version,
+            "is_deleted": d.is_deleted,
+            "deleted_at": d.deleted_at,
+            "created_at": d.created_at,
+            "export_job_id": d.export_job_id,
+            "project_id": d.project_id,
+        }
+        for d in deliveries
+    ]
 
 # Webhook endpoint for Telegram updates (mirrors worker, kept for single-service deploy)
 @router.post("/webhook")

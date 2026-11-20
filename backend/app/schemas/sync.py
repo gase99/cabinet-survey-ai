@@ -24,3 +24,10 @@ class ConflictOut(BaseModel):
     local_version: int | None
     server_version: int | None
     message: str
+
+
+class ConflictResolveRequest(BaseModel):
+    resolution: str = Field(pattern="^(keep_server|keep_local)$")
+    payload: dict | None = None
+    base_version: int | None = Field(strict=True, default=None, ge=1)
+

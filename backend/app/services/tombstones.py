@@ -4,13 +4,17 @@ from sqlalchemy.orm import Session
 from app.models.db_models import (
     Customer,
     Element,
+    PairingCode,
     Project,
     Room,
     SyncOperation,
+    TelegramDelivery,
+    User,
     Wall,
     gen_id,
     now_utc,
 )
+from app.services.audit import entity_snapshot, log_audit
 from app.services.revisions import append_revision, ensure_baseline_revision
 
 
@@ -54,6 +58,7 @@ def soft_delete_element(
     now: datetime | None = None,
 ) -> None:
     ts = now or now_utc()
+    old_snap = entity_snapshot("element", elem)
     old_version = elem.version
     ensure_baseline_revision(
         db,
@@ -84,6 +89,18 @@ def soft_delete_element(
         deleted_at=ts,
         op_id=op_id,
     )
+    log_audit(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        action="element.soft_delete",
+        entity_type="element",
+        entity_id=elem.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("element", elem),
+        detail=reason,
+        commit=False,
+    )
 
 
 def soft_delete_wall(
@@ -111,6 +128,7 @@ def soft_delete_wall(
             reason=f"{reason}_cascade",
             now=ts,
         )
+    old_snap = entity_snapshot("wall", wall)
     old_version = wall.version
     ensure_baseline_revision(
         db,
@@ -141,6 +159,18 @@ def soft_delete_wall(
         deleted_at=ts,
         op_id=op_id,
     )
+    log_audit(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        action="wall.soft_delete",
+        entity_type="wall",
+        entity_id=wall.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("wall", wall),
+        detail=reason,
+        commit=False,
+    )
 
 
 def soft_delete_room(
@@ -168,6 +198,7 @@ def soft_delete_room(
             reason=f"{reason}_cascade",
             now=ts,
         )
+    old_snap = entity_snapshot("room", room)
     old_version = room.version
     room.is_deleted = True
     room.deleted_at = ts
@@ -182,6 +213,18 @@ def soft_delete_room(
         deleted_at=ts,
         op_id=op_id,
     )
+    log_audit(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        action="room.soft_delete",
+        entity_type="room",
+        entity_id=room.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("room", room),
+        detail=reason,
+        commit=False,
+    )
 
 
 def soft_delete_customer(
@@ -193,6 +236,7 @@ def soft_delete_customer(
     now: datetime | None = None,
 ) -> None:
     ts = now or now_utc()
+    old_snap = entity_snapshot("customer", customer)
     old_version = customer.version
     customer.is_deleted = True
     customer.deleted_at = ts
@@ -207,6 +251,18 @@ def soft_delete_customer(
         deleted_at=ts,
         op_id=op_id,
     )
+    log_audit(
+        db,
+        user_id=user_id,
+        project_id=None,
+        action="customer.soft_delete",
+        entity_type="customer",
+        entity_id=customer.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("customer", customer),
+        detail="delete",
+        commit=False,
+    )
 
 
 def soft_delete_project(
@@ -218,6 +274,7 @@ def soft_delete_project(
     now: datetime | None = None,
 ) -> None:
     ts = now or now_utc()
+    old_snap = entity_snapshot("project", project)
     old_version = project.version
     project.is_deleted = True
     project.deleted_at = ts
@@ -233,6 +290,149 @@ def soft_delete_project(
         deleted_at=ts,
         op_id=op_id,
     )
+    log_audit(
+        db,
+        user_id=user_id,
+        project_id=project.id,
+        action="project.soft_delete",
+        entity_type="project",
+        entity_id=project.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("project", project),
+        detail="delete",
+        commit=False,
+    )
+
+
+def soft_delete_telegram_unlink(
+    db: Session,
+    *,
+    user: User,
+    now: datetime | None = None,
+) -> dict:
+    ts = now or now_utc()
+    old_chat_id = user.telegram_chat_id
+    old_username = user.telegram_username
+
+    pending_deliveries = (
+        db.query(TelegramDelivery)
+        .filter(
+            TelegramDelivery.owner_id == user.id,
+            TelegramDelivery.status == "pending",
+        )
+        .all()
+    )
+    for delivery in pending_deliveries:
+        old_deliv = entity_snapshot("telegram_delivery", delivery)
+        old_ver = delivery.version
+        delivery.status = "cancelled"
+        delivery.is_deleted = True
+        delivery.deleted_at = ts
+        delivery.version += 1
+        record_delete_operation(
+            db,
+            owner_id=user.id,
+            entity_type="telegram_delivery",
+            entity_id=delivery.id,
+            base_version=old_ver,
+            new_version=delivery.version,
+            deleted_at=ts,
+        )
+        log_audit(
+            db,
+            user_id=user.id,
+            project_id=delivery.project_id,
+            action="telegram_delivery.soft_delete",
+            entity_type="telegram_delivery",
+            entity_id=delivery.id,
+            old_values=old_deliv,
+            new_values=entity_snapshot("telegram_delivery", delivery),
+            detail="telegram_unlink",
+            commit=False,
+        )
+
+    pairing_rows = (
+        db.query(PairingCode)
+        .filter(PairingCode.user_id == user.id, PairingCode.is_deleted.is_(False))
+        .order_by(PairingCode.created_at.desc())
+        .all()
+    )
+    primary_link: PairingCode | None = None
+    old_link_snap: dict | None = None
+    for pc in pairing_rows:
+        if primary_link is None:
+            primary_link = pc
+            old_link_snap = entity_snapshot("telegram_link", pc)
+        old_ver = pc.version
+        if old_chat_id and not pc.telegram_chat_id:
+            pc.telegram_chat_id = old_chat_id
+        pc.used = True
+        pc.is_deleted = True
+        pc.deleted_at = ts
+        pc.version += 1
+        record_delete_operation(
+            db,
+            owner_id=user.id,
+            entity_type="telegram_link",
+            entity_id=pc.id,
+            base_version=old_ver,
+            new_version=pc.version,
+            deleted_at=ts,
+        )
+
+    if primary_link is None:
+        # Ensure an explicit soft-deleted link tombstone row exists even if chat_id was set directly.
+        primary_link = PairingCode(
+            user_id=user.id,
+            code=f"UNLINK-{gen_id()[:12]}",
+            telegram_chat_id=old_chat_id,
+            expires_at=ts,
+            used=True,
+            version=1,
+            is_deleted=True,
+            deleted_at=ts,
+        )
+        db.add(primary_link)
+        db.flush()
+        old_link_snap = {
+            "user_id": user.id,
+            "telegram_chat_id": old_chat_id,
+            "telegram_username": old_username,
+            "is_deleted": False,
+        }
+        record_delete_operation(
+            db,
+            owner_id=user.id,
+            entity_type="telegram_link",
+            entity_id=primary_link.id,
+            base_version=0,
+            new_version=primary_link.version,
+            deleted_at=ts,
+        )
+
+    user.telegram_chat_id = None
+    user.telegram_username = None
+    user.version += 1
+    db.flush()
+
+    log_audit(
+        db,
+        user_id=user.id,
+        project_id=None,
+        action="telegram.unlinked",
+        entity_type="telegram_link",
+        entity_id=primary_link.id,
+        old_values=old_link_snap,
+        new_values=entity_snapshot("telegram_link", primary_link),
+        detail="soft_delete",
+        commit=False,
+    )
+    return {
+        "status": "unlinked",
+        "id": primary_link.id,
+        "is_deleted": True,
+        "version": primary_link.version,
+    }
 
 
 def _tombstone_dict(entity_type: str, row) -> dict:
@@ -304,5 +504,23 @@ def collect_tombstones(
         if since is not None:
             q = q.filter(Element.deleted_at > since)
         items.extend(_tombstone_dict("element", row) for row in q.all())
+
+    if entity_type in (None, "telegram_link"):
+        q = db.query(PairingCode).filter(
+            PairingCode.user_id == user_id,
+            PairingCode.is_deleted.is_(True),
+        )
+        if since is not None:
+            q = q.filter(PairingCode.deleted_at > since)
+        items.extend(_tombstone_dict("telegram_link", row) for row in q.all())
+
+    if entity_type in (None, "telegram_delivery"):
+        q = db.query(TelegramDelivery).filter(
+            TelegramDelivery.owner_id == user_id,
+            TelegramDelivery.is_deleted.is_(True),
+        )
+        if since is not None:
+            q = q.filter(TelegramDelivery.deleted_at > since)
+        items.extend(_tombstone_dict("telegram_delivery", row) for row in q.all())
 
     return items

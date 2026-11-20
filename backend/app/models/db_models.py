@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, DateTime, Boolean, Text, ForeignKey, Index, UniqueConstraint, Float, JSON, event
+from sqlalchemy import String, Integer, DateTime, Boolean, Text, ForeignKey, Index, UniqueConstraint, Float, JSON, event, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 import uuid
@@ -94,6 +94,7 @@ class Wall(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_observation_id: Mapped[str | None] = mapped_column(ForeignKey("observations.id", name="fk_walls_source_observation_id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -118,6 +119,7 @@ class Element(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_observation_id: Mapped[str | None] = mapped_column(ForeignKey("observations.id", name="fk_elements_source_observation_id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -128,15 +130,22 @@ class Element(Base):
 class Observation(Base):
     __tablename__ = "observations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_id)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True, nullable=False)
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # manual, sketch_ai, voice_ai, import
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", name="fk_observations_owner_id_users"), index=True, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, nullable=True)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # manual, sketch_ai, voice_ai, text_ai, import
     raw_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     normalized_value_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     label: Mapped[str | None] = mapped_column(String(200), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id"), nullable=True)
-    source_region: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # bbox polygon
-    review_status: Mapped[str] = mapped_column(String(20), default="needs_review")
+    source_image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_region: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # bbox polygon or text span
+    prompt_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="needs_review", nullable=False)
+    linked_entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    linked_entity_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     clarification: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -183,6 +192,8 @@ class AuditEvent(Base):
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     entity_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     entity_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    old_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    new_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     project = relationship("Project", back_populates="audit_events")
@@ -192,8 +203,12 @@ class PairingCode(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 class TelegramDelivery(Base):
@@ -203,11 +218,27 @@ class TelegramDelivery(Base):
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     export_job_id: Mapped[str | None] = mapped_column(ForeignKey("export_jobs.id"), nullable=True)
     chat_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending, sent, failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending, sent, failed, cancelled
     message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", name="fk_idempotency_records_owner_id_users"), index=True, nullable=False)
+    scope: Mapped[str] = mapped_column(String(100), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_body: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    __table_args__ = (UniqueConstraint("owner_id", "scope", "idempotency_key", name="uq_idempotency_owner_scope_key"),)
 
 class SyncOperation(Base):
     __tablename__ = "sync_operations"
@@ -285,4 +316,47 @@ def _forbid_revision_update(mapper, connection, target):
 @event.listens_for(MeasurementRevision, "before_delete")
 def _forbid_revision_delete(mapper, connection, target):
     raise ValueError("MeasurementRevision records are immutable and cannot be deleted")
+
+
+@event.listens_for(AuditEvent, "before_update")
+def _forbid_audit_update(mapper, connection, target):
+    raise ValueError("AuditEvent records are append-only; updates are forbidden")
+
+
+@event.listens_for(AuditEvent, "before_delete")
+def _forbid_audit_delete(mapper, connection, target):
+    raise ValueError("AuditEvent records are append-only; deletes are forbidden")
+
+
+@event.listens_for(AuditEvent.__table__, "after_create")
+def _install_audit_append_only_triggers(target, connection, **kwargs):
+    dialect = connection.dialect.name
+    if dialect == "sqlite":
+        connection.execute(text(
+            "CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_update "
+            "BEFORE UPDATE ON audit_events "
+            "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only; UPDATE is forbidden'); END"
+        ))
+        connection.execute(text(
+            "CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_delete "
+            "BEFORE DELETE ON audit_events "
+            "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only; DELETE is forbidden'); END"
+        ))
+    elif dialect == "postgresql":
+        connection.execute(text(
+            "CREATE OR REPLACE FUNCTION forbid_audit_events_mutation() RETURNS trigger AS $$ "
+            "BEGIN RAISE EXCEPTION 'audit_events is append-only; % is forbidden', TG_OP; END; "
+            "$$ LANGUAGE plpgsql"
+        ))
+        connection.execute(text("DROP TRIGGER IF EXISTS trg_audit_events_no_update ON audit_events"))
+        connection.execute(text(
+            "CREATE TRIGGER trg_audit_events_no_update BEFORE UPDATE ON audit_events "
+            "FOR EACH ROW EXECUTE FUNCTION forbid_audit_events_mutation()"
+        ))
+        connection.execute(text("DROP TRIGGER IF EXISTS trg_audit_events_no_delete ON audit_events"))
+        connection.execute(text(
+            "CREATE TRIGGER trg_audit_events_no_delete BEFORE DELETE ON audit_events "
+            "FOR EACH ROW EXECUTE FUNCTION forbid_audit_events_mutation()"
+        ))
+
 

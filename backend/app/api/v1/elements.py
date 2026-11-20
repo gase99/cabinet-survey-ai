@@ -5,8 +5,9 @@ from app.core.deps import get_current_user
 from app.models.db_models import Element, Project, Room, User, Wall
 from app.schemas.element import ElementCreate, ElementOut, ElementUpdate
 from app.schemas.revision import MeasurementRevisionOut
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
+from app.services.provenance import bind_observation_to_measurement, sync_linked_observation_approval
 from app.services.revisions import (
     append_revision,
     approve_entity,
@@ -81,12 +82,23 @@ def create_element(
         sill_mm=payload.sill_mm,
         depth_mm=payload.depth_mm,
         source=payload.source,
+        confidence=payload.confidence,
+        source_observation_id=payload.source_observation_id,
         review_status=initial_status,
         approved_by=None,
         approved_at=None,
     )
     db.add(elem)
     db.flush()
+    if payload.source_observation_id:
+        bind_observation_to_measurement(
+            db,
+            observation_id=payload.source_observation_id,
+            user_id=user.id,
+            project_id=project.id,
+            entity_type="element",
+            entity_id=elem.id,
+        )
     append_revision(
         db,
         project_id=project.id,
@@ -95,8 +107,6 @@ def create_element(
         change_reason="create",
         user_id=user.id,
     )
-    db.commit()
-    db.refresh(elem)
     log_audit(
         db,
         user_id=user.id,
@@ -104,7 +114,12 @@ def create_element(
         action="element.create",
         entity_type="element",
         entity_id=elem.id,
+        old_values=None,
+        new_values=entity_snapshot("element", elem),
+        commit=False,
     )
+    db.commit()
+    db.refresh(elem)
     set_etag(response, elem.version)
     return elem
 
@@ -198,6 +213,17 @@ def update_element(
         entity=elem,
         fallback_user_id=user.id,
     )
+    old_snap = entity_snapshot("element", elem)
+    was_approved = elem.review_status == "approved"
+    if data.get("source_observation_id"):
+        bind_observation_to_measurement(
+            db,
+            observation_id=data["source_observation_id"],
+            user_id=user.id,
+            project_id=project.id,
+            entity_type="element",
+            entity_id=elem.id,
+        )
     for k, v in data.items():
         if k != "review_status":
             setattr(elem, k, str(v) if k == "kind" and v is not None else v)
@@ -207,6 +233,9 @@ def update_element(
     elem.approved_by = None
     elem.approved_at = None
     elem.version += 1
+    sync_linked_observation_approval(
+        db, observation_id=elem.source_observation_id, approved=False
+    )
     append_revision(
         db,
         project_id=project.id,
@@ -215,17 +244,20 @@ def update_element(
         change_reason="update",
         user_id=user.id,
     )
-    db.commit()
-    db.refresh(elem)
     log_audit(
         db,
         user_id=user.id,
         project_id=project.id,
-        action="element.update",
+        action="element.edit_after_approval" if was_approved else "element.update",
         entity_type="element",
         entity_id=elem.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("element", elem),
         detail=str(data),
+        commit=False,
     )
+    db.commit()
+    db.refresh(elem)
     set_etag(response, elem.version)
     return elem
 
@@ -239,14 +271,6 @@ def delete_element(
     elem, _, _, project = get_element_and_project(element_id, db, user)
     soft_delete_element(db, elem=elem, project_id=project.id, user_id=user.id)
     db.commit()
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=project.id,
-        action="element.soft_delete",
-        entity_type="element",
-        entity_id=elem.id,
-    )
     return {"status": "deleted", "id": elem.id, "is_deleted": True, "version": elem.version}
 
 
@@ -258,6 +282,7 @@ def approve_element(
     user: User = Depends(get_current_user),
 ):
     elem, _, _, project = get_element_and_project(element_id, db, user)
+    old_snap = entity_snapshot("element", elem)
     try:
         approve_entity(
             db,
@@ -268,8 +293,9 @@ def approve_element(
         )
     except ValueError as err:
         raise HTTPException(status_code=409, detail=str(err))
-    db.commit()
-    db.refresh(elem)
+    sync_linked_observation_approval(
+        db, observation_id=elem.source_observation_id, approved=True
+    )
     log_audit(
         db,
         user_id=user.id,
@@ -277,7 +303,12 @@ def approve_element(
         action="element.approve",
         entity_type="element",
         entity_id=elem.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("element", elem),
         detail=f"approved_by={user.id} approved_at={elem.approved_at.isoformat()}",
+        commit=False,
     )
+    db.commit()
+    db.refresh(elem)
     set_etag(response, elem.version)
     return elem
