@@ -31,8 +31,24 @@ jobs:
         working-directory: apps/client
       - run: flutter analyze --no-fatal-infos
         working-directory: apps/client
-      - run: flutter test --reporter expanded --timeout 30s
+      - name: Run flutter test
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded --timeout 30s 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
         working-directory: apps/client
+      - name: Preserve flutter test diagnostics on GitHub API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'flutter-test.log'
+          if p.exists():
+              detail=p.read_text(errors='replace')[-24000:]
+              for offset in range(0,len(detail),3000):
+                  chunk=detail[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                  print('::error::'+chunk)
+          PY
       - name: Native Dart real HTTP/SQLite workflow, not a device claim
         run: python ../../scripts/run-client-acceptance.py --native
         working-directory: apps/client

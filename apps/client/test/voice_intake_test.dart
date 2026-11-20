@@ -74,7 +74,7 @@ void main() {
     expect(find.textContaining('Conflicting spoken values'), findsNWidgets(2));
     expect(find.textContaining('Wall height not specified'), findsOneWidget);
     // Apply only pops with the proposal; the screen never writes survey data.
-    final applyButton = find.widgetWithText(FilledButton, 'Apply').first;
+    final applyButton = find.text('Apply').first;
     await tester.ensureVisible(applyButton);
     await tester.tap(applyButton);
     await tester.pumpAndSettle();
