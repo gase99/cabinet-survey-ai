@@ -61,7 +61,7 @@ class Api {
     final request = http.Request('POST', base.resolve('ai/parse-text'))
       ..headers['Content-Type'] = 'application/x-www-form-urlencoded';
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.body = 'text=${Uri.encodeQueryComponent(text)}&language_hint=fa,en';
+    request.body = 'text=${Uri.encodeQueryComponent(text)}&language_hint=${Uri.encodeQueryComponent('fa,en')}';
     final response = await http.Response.fromStream(
       await client.send(request).timeout(const Duration(seconds: 30)));
     if (response.statusCode != 200) {
