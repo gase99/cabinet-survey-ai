@@ -1,17 +1,21 @@
-import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cabinet_survey_ai/services/photo_importer.dart';
 
 void main() {
   test('picker cache clears on success, cancellation and picker/save errors', () async {
+    final dir = await Directory.systemTemp.createTemp('photo-import-test-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/test.png');
+    await file.writeAsBytes([1, 2, 3]);
     for (final scenario in ['success', 'cancel', 'picker-error', 'save-error']) {
       var cleaned = 0, saved = 0;
       final importer = PhotoImporter(
         pick: (_) async {
           if (scenario == 'picker-error') throw StateError('picker failed');
           if (scenario == 'cancel') return null;
-          return XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'test.png');
+          return XFile(file.path);
         },
         clearCache: () async { cleaned++; },
       );
