@@ -18,6 +18,8 @@ make device-only data unrecoverable. Plaintext legacy data is deleted only after
 warning and confirmation, including pending operation, device-local record and photo counts;
 server data is re-synced after sign-in. Unsynced changes and local-only photos are lost.
 See [Android client guidance](../apps/client/README.md) for picker cache and recovery limits.
+Not covered: exported PDFs/PNGs saved outside the app and external camera/gallery copies
+remain plaintext on the device. Generic open failures show "try again" before any reset.
 
 ## Current implementation limits and contract
 **Single client write path (Android):** `POST /api/v1/sync/push` is the **only** domain

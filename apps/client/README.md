@@ -50,16 +50,23 @@ invalid API host; its artifact is **not for publication or connected production 
   attempts a server re-sync after sign-in. Unreadable counts are shown as unknown. **All
   unsynced changes, device-local data and photos are permanently lost**: photo sync is not
   implemented. Cancel leaves the old data untouched. Failed sync remains marked for retry.
-- If the encrypted database key is unavailable or wrong, or SQLCipher reports a generic
-  open failure, the app asks before wiping the
-  encrypted cache, creates a new key/database, and re-syncs server data after sign-in.
-  No data is deleted without confirmation, including for generic open failures.
+- If SQLCipher reports "not a database" / "file is encrypted", or the wrapped key (or its
+  Keystore wrapping key) is missing (`WRAPPED_KEY_MISSING`), the app immediately offers the
+  confirmed reset: wipe the encrypted cache, create a new key/database, re-sync server
+  data after sign-in. A generic failure (SQLCipher `open_failed`, other Keystore errors)
+  first shows only **Try again**; the destructive reset is offered only after a retry has
+  also failed. No data is deleted without explicit confirmation in any case.
 - Backup and device-transfer rules exclude app data. Uninstall, device replacement, loss
   of the Keystore key, and unsupported restores make device-only data unrecoverable. Keep
   server sync current; photos are local-only and require a separate owner-managed copy.
 - Picker temporary files in the app cache are cleared after success, failure or cancellation
   and on startup. Files created by external camera/gallery apps and user originals are outside
   this app's control. File deletion is not guaranteed physical secure erasure on flash storage.
+- **Not covered by local encryption (plaintext on the device):** PDF/PNG exports saved
+  through the document picker (the user-chosen destination, e.g. Downloads or a cloud
+  folder) and any copies kept by external camera/gallery apps (e.g. the original photo in
+  the device gallery). These files are outside the app's SQLCipher database and are not
+  deleted by the app's reset; protect or delete them with the device's own tools.
 - Camera/gallery use the system picker; no broad storage or CAMERA manifest permission.
 - PDF/PNG saving uses `ACTION_CREATE_DOCUMENT`, so the user chooses the destination.
   Cancellation is not reported as a successful save. No legacy external-storage permission.
