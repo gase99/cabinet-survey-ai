@@ -29,6 +29,10 @@ services:
       TELEGRAM_WORKER_SECRET: ${TELEGRAM_WORKER_SECRET:?Set API-worker secret}
       EXPORT_STORAGE_DIR: /data/exports
       ASSET_STORAGE_DIR: /data/assets
+      # Trusted proxy addresses for X-Forwarded-For (gateway). Never '*'; see docs/operations.md.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      DEBUG: 'false'
     volumes: [exports:/data/exports, assets:/data/assets]
     depends_on:
       db: {condition: service_healthy}
