@@ -162,4 +162,16 @@ jobs:
           profile: pixel_6
           disable-animations: true
           working-directory: apps/client
-          script: bash ../../scripts/android-emulator-smoke.sh
+          script: set -o pipefail; bash ../../scripts/android-emulator-smoke.sh 2>&1 | tee "$RUNNER_TEMP/emulator-test.log"
+      - name: Preserve emulator diagnostics on GitHub API
+        if: failure()
+        run: |
+          python3 - <<'PYLOG'
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'emulator-test.log'
+          text = path.read_text(errors='replace')[-27000:] if path.exists() else 'Emulator failed before test logging'
+          for offset in range(0, len(text), 3000):
+              chunk = text[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error::' + chunk)
+          PYLOG
