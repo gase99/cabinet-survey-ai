@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = ROOT / 'apps/client'
 ANDROID = '{http://schemas.android.com/apk/res/android}'
@@ -54,6 +56,28 @@ def test_android_sources_manifest_and_wrapper_are_committed():
     assert 'gradle-8.12-all.zip' in properties
 
 
+def test_android_backup_excludes_local_data_for_cloud_and_device_transfer():
+    app = ET.parse(CLIENT / 'android/app/src/main/AndroidManifest.xml').getroot().find('application')
+    assert app.attrib[ANDROID + 'allowBackup'] == 'false'
+    assert app.attrib[ANDROID + 'fullBackupContent'] == '@xml/backup_rules'
+    assert app.attrib[ANDROID + 'dataExtractionRules'] == '@xml/data_extraction_rules'
+    xml_dir = CLIENT / 'android/app/src/main/res/xml'
+    expected = {'root', 'file', 'database', 'sharedpref', 'external'}
+    legacy = ET.parse(xml_dir / 'backup_rules.xml').getroot()
+    assert {(e.attrib['domain'], e.attrib['path']) for e in legacy.findall('exclude')} == {
+        (domain, '.') for domain in expected
+    }
+    rules = ET.parse(xml_dir / 'data_extraction_rules.xml').getroot()
+    for section in ('cloud-backup', 'device-transfer'):
+        assert {(e.attrib['domain'], e.attrib['path']) for e in rules.find(section).findall('exclude')} == {
+            (domain, '.') for domain in expected
+        }
+    for variant in ('debug', 'profile'):
+        manifest = ET.parse(CLIENT / f'android/app/src/{variant}/AndroidManifest.xml').getroot()
+        app_override = manifest.find('application')
+        assert app_override is None or ANDROID + 'allowBackup' not in app_override.attrib
+
+
 def test_release_never_falls_back_to_debug_signing():
     gradle = (CLIENT / 'android/app/build.gradle.kts').read_text()
     assert 'signingConfig = signingConfigs.getByName("debug")' not in gradle
@@ -75,6 +99,32 @@ def test_release_never_falls_back_to_debug_signing():
     assert 'flutter build apk --debug' in workflow
     assert 'flutter build appbundle --release' in workflow
     assert 'secrets.ANDROID_KEYSTORE_BASE64' in workflow
+
+
+def test_owner_signing_secrets_only_reach_protected_branch_or_tag_pushes():
+    workflow = yaml.safe_load((ROOT / '.github/workflows/client-ci.yml').read_text())
+    jobs = workflow['jobs']
+    steps = [step for job in jobs.values() for step in job['steps']]
+    release = next(step for step in steps if step.get('name', '').startswith('Build release AAB'))
+    secrets = {
+        'CI_ANDROID_KEYSTORE_BASE64': 'ANDROID_KEYSTORE_BASE64',
+        'CI_ANDROID_KEYSTORE_PASSWORD': 'ANDROID_KEYSTORE_PASSWORD',
+        'CI_ANDROID_KEY_ALIAS': 'ANDROID_KEY_ALIAS',
+        'CI_ANDROID_KEY_PASSWORD': 'ANDROID_KEY_PASSWORD',
+        'CI_RELEASE_API_BASE_URL': 'RELEASE_API_BASE_URL',
+    }
+    gate = ("github.event_name == 'push' && ((startsWith(github.ref, 'refs/heads/') "
+            "&& github.ref_protected == true) || startsWith(github.ref, 'refs/tags/'))")
+    for env_name, secret_name in secrets.items():
+        expression = '${{ ' + gate + ' && secrets.' + secret_name + " || '' }}"
+        assert release['env'][env_name] == expression
+        # No additional reference in any other step, job, or workflow-level setting.
+        assert (ROOT / '.github/workflows/client-ci.yml').read_text().count(
+            'secrets.' + secret_name
+        ) == 1
+    assert 'keytool -genkeypair' in release['run']
+    assert 'SIGNING_MODE="disposable-ci"' in release['run']
+    assert 'https://api.example.invalid/api/v1/' in release['run']
 
 
 def test_android_launcher_icons_and_localized_app_names_are_committed():

@@ -5,3 +5,6 @@
 # This app has no deferred components and does not bundle Play Core. Flutter's
 # embedding retains optional references to it; suppress only that missing API.
 -dontwarn com.google.android.play.core.**
+
+# SQLCipher native bindings used by sqflite_sqlcipher.
+-keep class net.sqlcipher.** { *; }

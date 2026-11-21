@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:cabinet_survey_ai/main.dart';
+import 'package:cabinet_survey_ai/core/secure_database.dart';
+import 'package:cabinet_survey_ai/core/store.dart';
 
 // Actual Android sqflite/secure-storage plugins, not VM substitutes. No network.
 // CI runs capture, force-stops the app, then runs again with VERIFY_REOPEN=true.
@@ -23,6 +25,9 @@ void main() {
       await tester.tap(find.text('ذخیره'));
       await tester.pumpAndSettle();
     }
+    final db = await SecureDatabase.open();
+    final projects = await LocalStore(db, 'device-local').list('project');
+    debugPrint('Smoke reopen=$reopen database=${db.path} device-local project count=${projects.length}');
     expect(find.text('Android device acceptance'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

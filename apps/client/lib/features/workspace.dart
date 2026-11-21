@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/document_saver.dart';
+import '../services/photo_importer.dart';
 import '../core/controller.dart';
 import '../core/store.dart';
 import '../core/l10n.dart';
@@ -28,7 +29,7 @@ class _WorkspaceState extends State<Workspace> {
   final undo = <Json>[], redo = <Json>[];
   @override
   void initState() { super.initState(); initialize(); }
-  Future<void> initialize() async { await c.restore(); await reload(); }
+  Future<void> initialize() async { await c.checkRecovery(); await c.restore(); await reload(); }
   Future<void> reload() async {
     final p = await c.store.list('project');
     final r = await c.store.list('room');
@@ -158,8 +159,7 @@ class _WorkspaceState extends State<Workspace> {
   }
   Future<void> photo(ImageSource source) async {
     await run(() async {
-      final picked=await ImagePicker().pickImage(source:source,maxWidth:4096,maxHeight:4096);
-      if(picked!=null) await c.store.photo(projectId!,picked.name,await picked.readAsBytes());
+      await PhotoImporter().capture(source, (name, bytes) => c.store.photo(projectId!, name, bytes));
     });
   }
   Future<void> export(Json project) async {
@@ -290,6 +290,8 @@ class _WorkspaceState extends State<Workspace> {
       actions:[IconButton(tooltip:"English / فارسی",onPressed:widget.toggleLocale,icon:const Icon(Icons.translate)),
         if(active) IconButton(tooltip:tr(context,'Sign out'),onPressed:busy?null:() => run(() async {await c.logout(); projectId=null; roomId=null;}),icon:const Icon(Icons.logout))]),
       body:AbsorbPointer(absorbing:busy,child:Column(children:[if(busy) const LinearProgressIndicator(),
+        if(c.resyncRequired) const Padding(padding:EdgeInsets.all(8), child:Text(
+          'Server re-sync required. Sign in and connect; retry Sync if it fails. / برای بازیابی، وارد حساب شوید و همگام‌سازی کنید.')),
         Expanded(child:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:1100),child:
           !active ? loginScreen() : ListView(padding:const EdgeInsets.all(20),children:[
             Text(c.email??tr(context,'Offline device workspace')),
