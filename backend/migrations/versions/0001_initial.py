@@ -1,6 +1,6 @@
 """Initial domain schema. New databases only; existing create_all databases require a reviewed migration."""
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0001"
 down_revision = None

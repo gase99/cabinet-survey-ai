@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
-from sqlalchemy import text
+
 from fastapi import FastAPI
-from app.core.config import settings
+from sqlalchemy import text
+
 from app.api.routes import router as api_router
-from app.core.database import init_db, engine
+from app.core.config import settings
+from app.core.database import engine, init_db
 from app.core.request_limits import RequestLimitMiddleware
+
 
 @asynccontextmanager
 async def lifespan(app):

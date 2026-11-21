@@ -1,5 +1,6 @@
+
 from pydantic import BaseModel
-from typing import List
+
 
 class DrawingResponse(BaseModel):
     project_id: str

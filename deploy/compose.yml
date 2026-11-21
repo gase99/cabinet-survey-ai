@@ -40,6 +40,9 @@ services:
   telegram:
     build: ../services/telegram-bot
     restart: unless-stopped
+    # Strictly single replica: worker uses local SQLite state and unleased pending-deliveries polling.
+    deploy:
+      replicas: 1
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set bot token}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Set independent ingress secret}

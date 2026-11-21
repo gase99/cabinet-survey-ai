@@ -4,6 +4,7 @@ import '../core/controller.dart';
 import '../core/l10n.dart';
 import '../core/store.dart';
 import '../domain/survey.dart';
+import '../domain/voice.dart';
 
 class SketchReview extends StatefulWidget {
   final SurveyController controller;
@@ -39,10 +40,21 @@ class _SketchReviewState extends State<SketchReview> {
       ]))),
       FilledButton(onPressed:loading?null:analyze,child:Text(loading?tr(context,'Working…'):'Analyze sketch / تحلیل طرح')),
       if(error!=null) SelectableText(error!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
-      for(var i=0;i<observations.length;i++) Card(child:ListTile(
-        selected:selected==i,onTap:() => setState(() => selected=i),
-        title:Text('${observations[i]['label']}: ${observations[i]['value_mm']??'?'} mm'),
-        subtitle:SelectableText('${observations[i]['source_text']}\n${observations[i]['uncertainty']??''}\nReview required / نیاز به بازبینی'))),
+      for(var i=0;i<observations.length;i++) Card(child:Padding(padding:const EdgeInsets.all(8),child:Column(
+        crossAxisAlignment:CrossAxisAlignment.start,children:[
+          ListTile(
+            selected:selected==i,onTap:() => setState(() => selected=i),
+            title:Text('${observations[i]['label']}: ${observations[i]['value_mm']??'?'} mm'),
+            subtitle:SelectableText('${observations[i]['source_text']}\n${observations[i]['uncertainty']??''}\nReview required / نیاز به بازبینی')),
+          Wrap(spacing:8,children:[
+            OutlinedButton(
+              onPressed:() => Navigator.pop(context,sketchCandidatePrefill(observations[i],asElement:false)),
+              child:Text(tr(context,'Add wall'))),
+            OutlinedButton(
+              onPressed:() => Navigator.pop(context,sketchCandidatePrefill(observations[i],asElement:true)),
+              child:Text(tr(context,'Add element'))),
+          ]),
+        ]))),
       for(final question in result?['clarification_questions'] as List? ?? []) Text('• $question'),
       for(final ambiguity in result?['ambiguities'] as List? ?? []) Text('⚠ $ambiguity'),
       // Candidates are never applied automatically. Manual entry remains a separate,

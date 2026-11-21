@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Customer, User
 from app.schemas.customer import CustomerCreate, CustomerOut, CustomerUpdate
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
 from app.services.tombstones import soft_delete_customer
 
@@ -36,6 +37,8 @@ def create_customer(
         action="customer.create",
         entity_type="customer",
         entity_id=c.id,
+        old_values=None,
+        new_values=entity_snapshot("customer", c),
     )
     set_etag(response, c.version)
     return c
@@ -103,6 +106,7 @@ def update_customer(
         base_version=payload.base_version,
     )
     c = lock_and_verify_version(db, Customer, customer_id, expected)
+    old_snap = entity_snapshot("customer", c)
     data = payload.model_dump(exclude_unset=True, exclude={"version", "base_version"})
     for k, v in data.items():
         setattr(c, k, v)
@@ -116,6 +120,8 @@ def update_customer(
         action="customer.update",
         entity_type="customer",
         entity_id=c.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("customer", c),
     )
     set_etag(response, c.version)
     return c
@@ -132,12 +138,4 @@ def delete_customer(
         raise HTTPException(status_code=404, detail="Customer not found")
     soft_delete_customer(db, customer=c, user_id=user.id)
     db.commit()
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=None,
-        action="customer.soft_delete",
-        entity_type="customer",
-        entity_id=c.id,
-    )
     return {"status": "deleted", "id": c.id, "is_deleted": True, "version": c.version}

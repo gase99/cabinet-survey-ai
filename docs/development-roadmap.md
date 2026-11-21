@@ -1,6 +1,6 @@
 # Development roadmap (phase-gated)
 
-A phase is complete only after implementation, automated tests, manual acceptance evidence and documentation review. Stop for user approval before starting the next phase.
+A phase is complete only after implementation, automated tests, manual acceptance evidence and documentation review. Never chain phases automatically: report verified results and stop for explicit user approval at every phase boundary before starting the next phase.
 
 1. Foundation: repository conventions, architecture, CI, environment and contracts.
 2. Flutter shell: Android bootstrap, navigation, themes, Persian RTL and English.

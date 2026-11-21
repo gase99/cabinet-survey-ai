@@ -14,7 +14,7 @@
 
 ## Workflow
 - Read relevant docs before changing architecture.
-- Work one roadmap phase at a time; stop for user approval at phase boundaries.
+- Work one roadmap phase at a time; never chain phases automatically, and always stop for explicit user approval at phase boundaries before starting the next phase.
 - Add tests for every behavior change; geometry changes require golden fixtures.
 - Preserve original observations and append revisions; never silently overwrite approved measurements.
 - Do not claim a feature is implemented based on a stub, mock or documentation.

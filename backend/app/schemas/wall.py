@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -10,8 +11,9 @@ class WallCreate(BaseModel):
     start_y_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
     end_x_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
     end_y_mm: int = Field(default=0, strict=True, ge=-1000000, le=1000000)
-    source: str = Field(default="manual", pattern="^(manual|sketch_ai|voice_ai|import)$")
+    source: str = Field(default="manual", pattern="^(manual|sketch_ai|voice_ai|text_ai|import)$")
     confidence: float | None = Field(default=None, ge=0, le=1)
+    source_observation_id: str | None = Field(default=None, max_length=36)
 
 
 class WallUpdate(BaseModel):
@@ -23,6 +25,7 @@ class WallUpdate(BaseModel):
     end_x_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     end_y_mm: int | None = Field(default=None, strict=True, ge=-1000000, le=1000000)
     review_status: str | None = Field(default=None, pattern="^(needs_review|incomplete)$")
+    source_observation_id: str | None = Field(default=None, max_length=36)
     version: int | None = Field(strict=True, default=None, ge=1)
     base_version: int | None = Field(strict=True, default=None, ge=1)
 
@@ -42,6 +45,7 @@ class WallOut(BaseModel):
     approved_at: datetime | None = None
     source: str
     confidence: float | None
+    source_observation_id: str | None = None
     version: int
     is_deleted: bool = False
     deleted_at: datetime | None = None

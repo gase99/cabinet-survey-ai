@@ -13,11 +13,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Record exact tested commit
         run: git rev-parse HEAD
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - run: pip install -r backend/requirements.txt
-      - run: pytest -q --junitxml=/tmp/backend-tests.xml
+      - name: Install locked backend and static-analysis dependencies
+        run: pip install -r backend/requirements.lock -r backend/requirements-dev.lock
+      - name: Ruff lint gate (backend excluding frozen geometry)
+        run: ruff check app migrations tests
+        working-directory: backend
+      - name: Mypy type-check gate (backend excluding frozen geometry)
+        run: mypy app migrations tests
+        working-directory: backend
+      - name: Repository structural and governance gates
+        run: pytest tests -q
+      - name: Backend unit and integration tests
+        run: pytest -q --junitxml=/tmp/backend-tests.xml
         working-directory: backend
   postgres-migration:
     runs-on: ubuntu-latest
@@ -42,7 +52,7 @@ jobs:
         run: git rev-parse HEAD
       - uses: actions/setup-python@v6
         with: {python-version: '3.11'}
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.lock
         working-directory: backend
       - run: alembic upgrade head && alembic check && alembic downgrade base && alembic upgrade head
         working-directory: backend
@@ -50,8 +60,23 @@ jobs:
       - name: PostgreSQL transaction and concurrency regressions
         env:
           ACCEPTANCE_DISPOSABLE_DATABASE: '1'
-        run: pytest tests/test_postgres_concurrency.py -q
+        run: |
+          set -o pipefail
+          pytest tests/test_postgres_concurrency.py -vv 2>&1 | tee "$RUNNER_TEMP/pg-concurrency.log"
         working-directory: backend
+      - name: Preserve PostgreSQL diagnostics on GitHub API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'pg-concurrency.log'
+          if p.exists():
+              detail = p.read_text(errors='replace')[-24000:]
+              for offset in range(0, len(detail), 3000):
+                  chunk = detail[offset:offset+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error::' + chunk)
+          PY
       - name: Disposable PostgreSQL and asset backup restoration drill
         env:
           ACCEPTANCE_DISPOSABLE_DATABASE: '1'

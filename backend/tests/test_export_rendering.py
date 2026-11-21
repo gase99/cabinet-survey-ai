@@ -1,9 +1,8 @@
-import io
-from pathlib import Path
 import pytest
 from PIL import Image
 from pypdf import PdfReader
-from app.services.export_service import generate_project_pdf, generate_project_png, PNG_SIZES
+
+from app.services.export_service import PNG_SIZES, generate_project_pdf, generate_project_png
 
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><path d="M20 20 L380 20 L380 140 L200 140 L200 280 L20 280 Z" fill="none" stroke="black" stroke-width="4"/><text x="25" y="60">3200 mm</text></svg>'
 

@@ -1,5 +1,9 @@
+from datetime import UTC
+
 import pytest
+
 from app.core.config import settings
+
 
 @pytest.fixture(autouse=True)
 def worker_secret(monkeypatch):
@@ -102,11 +106,12 @@ def test_pairing_replacement_and_single_use(client, auth_headers):
 
 
 def test_pairing_expiration(client, auth_headers, db_session):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from app.models.db_models import PairingCode
     code = client.post("/api/v1/telegram/pairing-code", headers=auth_headers).json()["code"]
     record = db_session.query(PairingCode).filter_by(code=code).one()
-    record.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    record.expires_at = datetime.now(UTC) - timedelta(minutes=1)
     db_session.commit()
     response = client.post("/api/v1/telegram/verify-pairing", headers=WORKER_HEADERS,
                            json={"code": code, "telegram_chat_id": "12345"})
@@ -115,7 +120,7 @@ def test_pairing_expiration(client, auth_headers, db_session):
 
 
 def test_unlink_cancels_queued_deliveries_and_callback_replay_cannot_resurrect(client,auth_headers,db_session):
-    from app.models.db_models import User,TelegramDelivery
+    from app.models.db_models import TelegramDelivery, User
     user=db_session.query(User).filter_by(email='test@example.com').one()
     user.telegram_chat_id='12345'
     delivery=TelegramDelivery(owner_id=user.id,chat_id='12345',status='pending')

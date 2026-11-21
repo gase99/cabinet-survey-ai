@@ -88,19 +88,27 @@ class _WorkspaceState extends State<Workspace> {
     await run(() => c.store.save('room', {...value,'id':uuid.v4(),'project_id':projectId,'room_type':'irregular'}));
   }
   Future<void> editWall([Json? wall, Json? prefill]) async {
-    // A voice proposal prefills the same confirm-first form: the user still
+    // A voice/sketch proposal prefills the same confirm-first form: the user still
     // reviews, completes and saves, so nothing skips explicit confirmation.
     final spoken = wall == null && prefill != null;
+    final initial = (wall == null && prefill == null)
+        ? null
+        : <String, dynamic>{...?wall, ...?prefill};
     final value=await form(wall==null?'Add wall':'Review',{
       'label':'Label','length_mm':'Length (mm)','height_mm':'Height (mm)',
       'start_x_mm':'Start X (mm)','start_y_mm':'Start Y (mm)',
-      'end_x_mm':'End X (mm)','end_y_mm':'End Y (mm)'},initial:wall??prefill,
+      'end_x_mm':'End X (mm)','end_y_mm':'End Y (mm)'},initial:initial,
       numeric:{'length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm'},
       signed:{'start_x_mm','start_y_mm','end_x_mm','end_y_mm'});
     if(value==null) return;
     await run(() async {
+      final sourceObsId=(prefill?['source_observation_id']??prefill?['candidate_id']??wall?['source_observation_id']) as String?;
+      final conf=(prefill?['confidence']??wall?['confidence']) as num?;
+      final src=(prefill?['source']??wall?['source']??(spoken?'voice_ai':'manual')) as String;
       final next={...?wall,...value,'id':wall?['id']??uuid.v4(),'room_id':roomId,
-        'source':wall?['source']??(spoken?'voice_ai':'manual'),
+        'source':src,
+        if(conf!=null) 'confidence':conf.toDouble(),
+        if(sourceObsId!=null) 'source_observation_id':sourceObsId,
         'review_status':'needs_review'};
       final candidate=SurveyWall.fromJson(next);
       if(candidate.length>50000 || candidate.height>10000) throw const FormatException('Wall dimensions exceed supported bounds');
@@ -108,18 +116,27 @@ class _WorkspaceState extends State<Workspace> {
       await c.store.save('wall',next);
     });
   }
-  Future<void> editElement(Json wall,[Json? element]) async {
+  Future<void> editElement(Json wall,[Json? element, Json? prefill]) async {
+    final initial = (element == null && prefill == null)
+        ? null
+        : <String, dynamic>{...?element, ...?prefill};
     final value=await form(element==null?'Add element':'Review',{
       'label':'Label','kind':'Kind','offset_mm':'Offset (mm)','width_mm':'Width (mm)',
-      'height_mm':'Height (mm)','sill_mm':'Sill (mm)'},initial:element,
+      'height_mm':'Height (mm)','sill_mm':'Sill (mm)'},initial:initial,
       numeric:{'offset_mm','width_mm','height_mm','sill_mm'},optional:{'height_mm','sill_mm'},zero:{'offset_mm','sill_mm'});
     if(value==null) return;
     await run(() async {
       const kinds=['window','door','column','beam','gas_pipe','water_pipe','drain','electrical','switch','socket','ventilation','recess','protrusion','custom'];
       if(!kinds.contains(value['kind'])) throw FormatException('Kind: ${kinds.join(', ')}');
       final incomplete=value['height_mm']==null || value['sill_mm']==null;
+      final sourceObsId=(prefill?['source_observation_id']??prefill?['candidate_id']??element?['source_observation_id']) as String?;
+      final conf=(prefill?['confidence']??element?['confidence']) as num?;
+      final src=(prefill?['source']??element?['source']??'manual') as String;
       final next={...?element,...value,'id':element?['id']??uuid.v4(),'wall_id':wall['id'],
-        'source':element?['source']??'manual','review_status':incomplete?'incomplete':'needs_review'};
+        'source':src,
+        if(conf!=null) 'confidence':conf.toDouble(),
+        if(sourceObsId!=null) 'source_observation_id':sourceObsId,
+        'review_status':incomplete?'incomplete':'needs_review'};
       final errors=validateRoom([SurveyWall.fromJson(wall)], [
         ...elements.where((e) => e['id']!=next['id']),next])
         .where((e) => e.contains('bounds') || e.contains('overlaps')).toList();
@@ -154,7 +171,7 @@ class _WorkspaceState extends State<Workspace> {
       if((await c.store.queue()).any((r) => r['state']!='applied' && r['state']!='resolved')) throw StateError('Resolve pending changes before exporting');
       final format=(value['format'] as String).toLowerCase(), layout=(value['layout'] as String).toUpperCase();
       if(!['pdf','png'].contains(format) || !['A4','A3'].contains(layout)) throw const FormatException('Choose pdf/png and A4/A3');
-      final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout}) as Json;
+      final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout},{'Idempotency-Key':uuid.v4()}) as Json;
       final bytes=await c.api.bytes('exports/${job['id']}/download');
       final saved=await const DocumentSaver().save(name:'survey-${project['id']}.$format',bytes:bytes,pdf:format=='pdf');
       if(saved && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tr(context,'Document saved'))));
@@ -180,7 +197,20 @@ class _WorkspaceState extends State<Workspace> {
     }
     final proposal=await Navigator.push<VoiceProposal>(context,
       MaterialPageRoute<VoiceProposal>(builder:(_) => VoiceIntake(api:c.api)));
-    if(!mounted || proposal==null || proposal.wallField==null) return;
+    if(!mounted || proposal==null || !proposal.isApplicable) return;
+    if(proposal.elementKind!=null) {
+      if(walls.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'No walls yet'))));
+        return;
+      }
+      final wall=walls.length==1?walls.first:await showDialog<Json>(context:context,builder:(d) => SimpleDialog(
+        title:Text(tr(context,'Add element')),
+        children:[for(final w in walls) SimpleDialogOption(
+          onPressed:() => Navigator.pop(d,w),child:Text('${w['label']} · ${w['length_mm']} mm'))]));
+      if(!mounted || wall==null) return;
+      await editElement(wall,null,proposal.prefill());
+      return;
+    }
     if(!proposal.isCorrection) { await editWall(null,proposal.prefill()); return; }
     final targets=walls;
     if(targets.isEmpty) {
@@ -193,6 +223,39 @@ class _WorkspaceState extends State<Workspace> {
         onPressed:() => Navigator.pop(d,wall),child:Text('${wall['label']} · ${wall[proposal.wallField!]} mm'))]));
     if(!mounted || target==null) return;
     await editWall(target,proposal.prefill());
+  }
+  Future<void> reviewSketch(Json image) async {
+    final prefill=await Navigator.push<Json>(context,
+      MaterialPageRoute<Json>(builder:(_) => SketchReview(controller:c,photo:image)));
+    if(!mounted || prefill==null) return;
+    if(roomId==null) {
+      if(rooms.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'Add room'))));
+        return;
+      }
+      final selected=rooms.length==1?rooms.first['id'] as String:await showDialog<String>(context:context,builder:(d) => SimpleDialog(
+        title:Text(tr(context,'Rooms')),
+        children:[for(final room in rooms) SimpleDialogOption(
+          onPressed:() => Navigator.pop(d,room['id'] as String),child:Text(room['label'] as String))]));
+      if(!mounted || selected==null) return;
+      setState(() => roomId=selected);
+      await reload();
+      if(!mounted) return;
+    }
+    if(prefill['_target']=='element') {
+      if(walls.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context,'No walls yet'))));
+        return;
+      }
+      final wall=walls.length==1?walls.first:await showDialog<Json>(context:context,builder:(d) => SimpleDialog(
+        title:Text(tr(context,'Add element')),
+        children:[for(final w in walls) SimpleDialogOption(
+          onPressed:() => Navigator.pop(d,w),child:Text('${w['label']} · ${w['length_mm']} mm'))]));
+      if(!mounted || wall==null) return;
+      await editElement(wall,null,prefill);
+      return;
+    }
+    await editWall(null,prefill);
   }
   Future<void> telegram() async {
     await run(() async {
@@ -213,7 +276,7 @@ class _WorkspaceState extends State<Workspace> {
         children:[for(final raw in jobs) if((raw as Json)['status']=='done') SimpleDialogOption(
           onPressed:() => Navigator.pop(d,raw['id'] as String),child:Text('${raw['format']} ${raw['layout']} · ${raw['created_at']}'))]));
       if(selected==null) return;
-      final receipt=await c.api.request('POST','telegram/send',{'export_job_id':selected});
+      final receipt=await c.api.request('POST','telegram/send',{'export_job_id':selected},{'Idempotency-Key':uuid.v4()});
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$receipt')));
     });
   }
@@ -295,7 +358,7 @@ class _WorkspaceState extends State<Workspace> {
     Text(tr(context,'AI candidates require review; no dimensions are inferred from pixels.')),
     for(final image in photos) Card(child:Column(children:[
       Image.memory(image['bytes'] as Uint8List,height:240,fit:BoxFit.contain),
-      TextButton(onPressed:() => Navigator.push(context,MaterialPageRoute<void>(builder:(_) => SketchReview(controller:c,photo:image))),
+      TextButton(onPressed:() => reviewSketch(image),
         child:Text(tr(context,'Review')))])),
   ];
   List<Widget> roomScreen() => [

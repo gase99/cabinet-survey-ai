@@ -1,9 +1,9 @@
 from app.ai.provider import parse_text_measurements_deterministic
-import asyncio
+
 
 def test_parse_english_measurements():
     text = "Wall A: 3200 mm\nWall height: 2700 mm\nWindow width: 1200 mm"
-    result = asyncio.run(quick_parse(text)) if False else parse_text_measurements_sync(text)
+    result = parse_text_measurements_sync(text)
     assert len(result["observations"]) == 3
     assert result["observations"][0]["value_mm"] == 3200
     assert any("height" in o["label"].lower() for o in result["observations"])

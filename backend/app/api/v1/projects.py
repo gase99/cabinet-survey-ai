@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from sqlalchemy import desc, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Customer, Project, User
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
-from app.services.audit import log_audit
+from app.services.audit import entity_snapshot, log_audit, serialize_audit_event
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
 from app.services.tombstones import soft_delete_project
 
@@ -45,6 +46,8 @@ def create_project(
         action="project.create",
         entity_type="project",
         entity_id=p.id,
+        old_values=None,
+        new_values=entity_snapshot("project", p),
     )
     set_etag(response, p.version)
     return p
@@ -71,7 +74,7 @@ def list_projects(
     if status:
         query = query.filter(Project.status == status)
     query = (
-        query.order_by(desc(Project.updated_at))
+        query.order_by(Project.updated_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -85,7 +88,7 @@ def recent_projects(
     return (
         db.query(Project)
         .filter(Project.owner_id == user.id, Project.is_deleted.is_(False))
-        .order_by(desc(Project.updated_at))
+        .order_by(Project.updated_at.desc())
         .limit(5)
         .all()
     )
@@ -125,6 +128,7 @@ def update_project(
         base_version=payload.base_version,
     )
     p = lock_and_verify_version(db, Project, project_id, expected)
+    old_snap = entity_snapshot("project", p)
     data = payload.model_dump(exclude_unset=True, exclude={"version", "base_version"})
     if data.get("customer_id"):
         customer = db.get(Customer, data["customer_id"])
@@ -135,21 +139,25 @@ def update_project(
         for k, v in data.items():
             if k != "status":
                 setattr(p, k, v)
+        db.commit()
+        db.refresh(p)
     else:
         for k, v in data.items():
             setattr(p, k, v)
         p.version += 1
-    db.commit()
-    db.refresh(p)
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=p.id,
-        action="project.update",
-        entity_type="project",
-        entity_id=p.id,
-        detail=str(data),
-    )
+        db.commit()
+        db.refresh(p)
+        log_audit(
+            db,
+            user_id=user.id,
+            project_id=p.id,
+            action="project.update",
+            entity_type="project",
+            entity_id=p.id,
+            old_values=old_snap,
+            new_values=entity_snapshot("project", p),
+            detail=str(data),
+        )
     set_etag(response, p.version)
     return p
 
@@ -167,14 +175,6 @@ def delete_project(
     if not p.is_deleted:
         soft_delete_project(db, project=p, user_id=user.id)
         db.commit()
-        log_audit(
-            db,
-            user_id=user.id,
-            project_id=p.id,
-            action="project.soft_delete",
-            entity_type="project",
-            entity_id=p.id,
-        )
     return {"status": "deleted", "id": p.id, "is_deleted": True, "version": p.version}
 
 
@@ -190,11 +190,13 @@ def restore_project(
     assert_ownership(p, user)
     if not p.is_deleted:
         raise HTTPException(status_code=400, detail="Project is not deleted")
+    old_snap = entity_snapshot("project", p)
     p.is_deleted = False
     p.deleted_at = None
     p.status = "draft"
     p.version += 1
     db.commit()
+    db.refresh(p)
     log_audit(
         db,
         user_id=user.id,
@@ -202,6 +204,8 @@ def restore_project(
         action="project.restore",
         entity_type="project",
         entity_id=p.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("project", p),
     )
     return {"status": "restored"}
 
@@ -216,9 +220,21 @@ def archive_project(
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     assert_ownership(p, user)
+    old_snap = entity_snapshot("project", p)
     p.status = "archived"
     p.version += 1
     db.commit()
+    db.refresh(p)
+    log_audit(
+        db,
+        user_id=user.id,
+        project_id=p.id,
+        action="project.archive",
+        entity_type="project",
+        entity_id=p.id,
+        old_values=old_snap,
+        new_values=entity_snapshot("project", p),
+    )
     return {"status": "archived"}
 
 
@@ -237,19 +253,8 @@ def project_history(
     events = (
         db.query(AuditEvent)
         .filter(AuditEvent.project_id == project_id)
-        .order_by(desc(AuditEvent.created_at))
+        .order_by(AuditEvent.created_at.desc())
         .limit(100)
         .all()
     )
-    return [
-        {
-            "id": e.id,
-            "action": e.action,
-            "entity_type": e.entity_type,
-            "entity_id": e.entity_id,
-            "detail": e.detail,
-            "created_at": e.created_at,
-            "user_id": e.user_id,
-        }
-        for e in events
-    ]
+    return [serialize_audit_event(e) for e in events]

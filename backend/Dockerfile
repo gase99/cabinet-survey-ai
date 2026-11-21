@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 WORKDIR /service
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --create-home api
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock && useradd --uid 10001 --create-home api
 COPY . .
 RUN mkdir -p /data/exports /data/assets && chown -R api:api /data
 USER api

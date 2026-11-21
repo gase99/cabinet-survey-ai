@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+import os
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.db_models import User, Asset, Project
-from app.core.config import settings
-import os, tempfile, uuid
-from fastapi.responses import FileResponse
-from pathlib import Path
+from app.models.db_models import Asset, Project, User
 from app.services.uploads import validated_upload
 
 router = APIRouter(prefix="/assets", tags=["assets"])

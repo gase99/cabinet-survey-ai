@@ -14,7 +14,7 @@ if sys.argv[2]=='release' and (p.hostname.endswith('.example') or p.hostname.end
  raise SystemExit('Replace the example API host before a connected release build.')
 PY
 cd "$ROOT/apps/client"
-flutter pub get
+flutter pub get --enforce-lockfile
 if [[ "$KIND" == debug ]]; then
   flutter build apk --debug --dart-define-from-file="$CONFIG"
   echo 'APK: build/app/outputs/flutter-apk/app-debug.apk'

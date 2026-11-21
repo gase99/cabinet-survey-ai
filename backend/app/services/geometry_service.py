@@ -1,4 +1,5 @@
-from app.geometry.engine import WallInput, ElementInput, build_geometry, PointMM
+from app.geometry.engine import ElementInput, PointMM, WallInput, build_geometry
+
 
 def walls_and_elements_from_room(room, walls, elements):
     w_inputs = []

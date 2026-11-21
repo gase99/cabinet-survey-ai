@@ -105,11 +105,12 @@ docker compose --env-file .env -f deploy/compose.yml config --quiet
 docker compose --env-file .env -f deploy/compose.yml up --build -d
 docker compose --env-file .env -f deploy/compose.yml ps
 curl --fail https://YOUR_REAL_DOMAIN/health
+curl --fail https://YOUR_REAL_DOMAIN/ready
 ```
 
-انتظار: `/health` وضعیت `ok` دارد؛ db/api/telegram سالم‌اند. migration در شروع کانتینر API
-با `alembic upgrade head` اجرا می‌شود. health فعلی liveness است، نه readiness کامل دیسک،
-صف، ظرفیت یا همهٔ وابستگی‌ها. لاگ‌ها:
+انتظار: `/health` وضعیت `ok` (liveness سبک بدون کوئری DB) و `/ready` وضعیت `ready`
+(بررسی اتصال PostgreSQL با `SELECT 1`؛ در صورت قطع DB کد `503`) برمی‌گرداند؛
+db/api/telegram سالم‌اند. migration در شروع کانتینر API با `alembic upgrade head` اجرا می‌شود. لاگ‌ها:
 
 ```sh
 docker compose --env-file .env -f deploy/compose.yml logs --tail=100 api telegram

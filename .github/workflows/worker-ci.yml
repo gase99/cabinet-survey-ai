@@ -15,7 +15,7 @@ jobs:
         run: git rev-parse HEAD
       - uses: actions/setup-python@v6
         with: {python-version: '3.11'}
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.lock
         working-directory: services/telegram-bot
       - run: PYTHONPATH=. pytest -q --junitxml=/tmp/worker-tests.xml
         working-directory: services/telegram-bot

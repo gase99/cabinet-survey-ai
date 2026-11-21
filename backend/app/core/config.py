@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from pydantic import model_validator
-from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     app_name: str = "Cabinet Survey AI"
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     upload_allowed_types: str = "image/jpeg,image/png,image/webp,application/pdf"
     rate_limit_auth_per_minute: int = 10
     rate_limit_ai_per_minute: int = 20
+    idempotency_ttl_seconds: int = 86400
 
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_file_encoding="utf-8")

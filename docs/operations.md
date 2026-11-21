@@ -2,9 +2,10 @@
 
 ## Services
 - FastAPI API and PostgreSQL; SQLite is local to the Android app or disposable tests.
-- Independent Telegram webhook/delivery worker, one replica and persistent retry state.
+- Independent Telegram webhook/delivery worker (`services/telegram-bot`), strictly **single replica (`1`)** with persistent SQLite retry/dedup state (`/data/worker/worker.sqlite`). Webhook ingress (`POST /telegram/webhook` -> worker `:8081/webhook`) is implemented; `getUpdates` long polling is not implemented, FastAPI's `/api/v1/telegram/webhook` stub is disabled (`501` / gateway `404`), and running >1 worker replica is unsupported because `pending-deliveries` polling is unleased.
 - nginx **API/webhook gateway**, not a static web-client host. Android is installed as APK/AAB.
 - AI requests and PDF/PNG generation currently run in the API process, not a separate AI/export worker.
+- API exposes cheap liveness at `GET /health` and database readiness (`SELECT 1`, `503` on failure) at `GET /ready`.
 
 ## Deployment
 Use `deploy/compose.yml`; no web build is required. Generate a private `.env` with

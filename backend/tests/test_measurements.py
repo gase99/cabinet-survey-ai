@@ -1,5 +1,5 @@
-import pytest
-from app.domain.measurements import to_mm, from_mm, normalize_numerals
+from app.domain.measurements import from_mm, normalize_numerals, to_mm
+
 
 def test_to_mm_units():
     assert to_mm(1, "mm") == 1

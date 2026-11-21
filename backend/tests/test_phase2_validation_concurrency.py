@@ -1,7 +1,9 @@
 import uuid
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+
 from app.models.db_models import Customer, Element, Project, Room, User, Wall
 
 
@@ -133,6 +135,7 @@ def test_optimistic_concurrency_version_and_if_match_on_all_rest_puts(
     client, auth_headers, db_session, monkeypatch
 ):
     from cryptography.fernet import Fernet
+
     from app.core.config import settings
 
     cust, proj, room, wall, elem = _setup_hierarchy(client, auth_headers)
@@ -471,48 +474,44 @@ def test_soft_deletes_preserve_rows_and_sync_as_tombstones(
 def test_sqlite_foreign_keys_are_enabled_and_violations_fail(db_session):
     assert db_session.execute(text("PRAGMA foreign_keys")).scalar() == 1
 
-    with pytest.raises(IntegrityError):
-        with db_session.begin_nested():
-            db_session.add(
-                Room(
-                    project_id="non-existent-project",
-                    label="Orphan Room",
-                    room_type="rectangular",
-                )
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.add(
+            Room(
+                project_id="non-existent-project",
+                label="Orphan Room",
+                room_type="rectangular",
             )
-            db_session.flush()
+        )
+        db_session.flush()
 
-    with pytest.raises(IntegrityError):
-        with db_session.begin_nested():
-            db_session.add(
-                Wall(
-                    room_id="non-existent-room",
-                    label="Orphan Wall",
-                    length_mm=3000,
-                    height_mm=2700,
-                )
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.add(
+            Wall(
+                room_id="non-existent-room",
+                label="Orphan Wall",
+                length_mm=3000,
+                height_mm=2700,
             )
-            db_session.flush()
+        )
+        db_session.flush()
 
-    with pytest.raises(IntegrityError):
-        with db_session.begin_nested():
-            db_session.add(
-                Element(
-                    wall_id="non-existent-wall",
-                    label="Orphan Window",
-                    kind="window",
-                    offset_mm=100,
-                    width_mm=800,
-                )
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.add(
+            Element(
+                wall_id="non-existent-wall",
+                label="Orphan Window",
+                kind="window",
+                offset_mm=100,
+                width_mm=800,
             )
-            db_session.flush()
+        )
+        db_session.flush()
 
-    with pytest.raises(IntegrityError):
-        with db_session.begin_nested():
-            db_session.add(
-                Project(
-                    owner_id="non-existent-user",
-                    title="Orphan Project",
-                )
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.add(
+            Project(
+                owner_id="non-existent-user",
+                title="Orphan Project",
             )
-            db_session.flush()
+        )
+        db_session.flush()

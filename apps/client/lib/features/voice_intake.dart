@@ -75,7 +75,7 @@ class _VoiceIntakeState extends State<VoiceIntake> {
           subtitle: SelectableText('${proposal.sourceText}\n'
             '${tr(context, 'Review required / نیاز به بازبینی')}'
             '${proposal.conflict ? '\n⚠ ${tr(context, 'Conflicting spoken values; resolve manually.')}' : ''}'),
-          trailing: proposal.wallField == null ? null :
+          trailing: !proposal.isApplicable ? null :
             FilledButton.tonal(onPressed: () => Navigator.pop(context, proposal),
               child: Text(tr(context, 'Apply'))))),
       for (final question in questions) Text('• $question'),

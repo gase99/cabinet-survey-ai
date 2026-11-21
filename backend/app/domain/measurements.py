@@ -1,6 +1,8 @@
 """Canonical domain primitives. All persisted lengths are integer millimetres."""
 from enum import StrEnum
+
 from pydantic import BaseModel, Field
+
 
 class ReviewStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
@@ -45,7 +47,7 @@ def to_mm(value: float, unit: str) -> int:
     factor = UNIT_TO_MM.get(u)
     if factor is None:
         raise ValueError(f"Unknown unit: {unit}")
-    return int(round(value * factor))
+    return round(value * factor)
 
 def from_mm(value_mm: int, unit: str) -> float:
     u = unit.lower().strip()
@@ -56,7 +58,7 @@ def from_mm(value_mm: int, unit: str) -> float:
 
 # Persian / Arabic numeral normalization
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-ARABIC_DECIMAL = {"٫": ".", "،": ".", "٫": "."}
+ARABIC_DECIMAL = {"٫": ".", "،": "."}
 
 def normalize_numerals(s: str) -> str:
     t = s.translate(PERSIAN_DIGITS)
