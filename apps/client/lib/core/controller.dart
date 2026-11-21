@@ -5,8 +5,9 @@ import 'package:sqflite/sqflite.dart';
 import '../domain/survey.dart';
 import 'api.dart';
 import 'store.dart';
+import 'secure_database.dart';
 
-final databaseProvider = FutureProvider<Database>((ref) => LocalStore.open());
+final databaseProvider = FutureProvider<Database>((ref) => SecureDatabase.open());
 final controllerProvider = ChangeNotifierProvider.family<SurveyController, Database>(
   (ref, db) {
     final controller = SurveyController(db);
@@ -20,6 +21,8 @@ class SurveyController extends ChangeNotifier {
   final FlutterSecureStorage secure = const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
   String owner = 'device-local';
   bool offline = false;
+  bool resyncRequired = false;
+  Future<void> checkRecovery() async { resyncRequired = await SecureDatabase.needsResync(db.path); }
   String? email;
   SurveyController(this.db, {Api? api}) : api = api ?? Api();
   LocalStore get store => LocalStore(db, owner);
@@ -40,6 +43,8 @@ class SurveyController extends ChangeNotifier {
       offline = false;
       notifyListeners();
     } catch (_) { api.token = null; rethrow; }
+    await checkRecovery();
+    if (resyncRequired) await sync();
   }
   Future<void> restore() async {
     try {
@@ -57,6 +62,10 @@ class SurveyController extends ChangeNotifier {
       } on ApiException catch(error) {
         if(error.status==401) { await logout(); return; }
       } catch(_) { /* Network absent: retain account-scoped local capture. */ }
+      await checkRecovery();
+      if (api.token != null && resyncRequired) {
+        try { await sync(); } catch (_) { /* Retry via Sync when the network is available. */ }
+      }
       notifyListeners();
     } catch(_) { /* Secure storage unavailable: use explicit sign-in/offline workspace. */ }
   }
@@ -128,6 +137,8 @@ class SurveyController extends ChangeNotifier {
         await store.applyTombstone(tombstone['entity_type'] as String, tombstone);
       }
     }
+    await SecureDatabase.markResynced(db.path);
+    resyncRequired = false;
     notifyListeners();
   }
 }

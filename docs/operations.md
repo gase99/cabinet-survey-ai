@@ -19,6 +19,13 @@ See [Persian setup guide](telegram-setup-fa.md) for exact commands, distinct cre
 webhook registration, pairing, verification, logs, backups and troubleshooting.
 Health endpoints are liveness checks, not a full production readiness/observability suite.
 
+## Known static-analysis debt
+
+`backend/app/geometry` is currently excluded from Ruff and mypy analysis, and its
+code contains `type: ignore` comments. Passing those checks does not establish that
+geometry is lint- or type-clean; addressing this debt requires a separate, reviewed
+geometry change with appropriate golden tests.
+
 ## Persistence and recovery
 Persist PostgreSQL, `/data/assets`, `/data/exports` and `/data/worker`. API/worker run
 as UID 10001; writable volumes need appropriate ownership, not world-wide write access.

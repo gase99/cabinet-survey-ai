@@ -10,7 +10,14 @@ Each local mutation creates a durable operation with operation ID, entity ID, ba
 Compare local and server versions. Never silently overwrite measurements or approvals. Conflicts are visible and require a resolution decision. Preserve both revisions and audit the resolver. Support resumable binary uploads where practical.
 
 ## Security
-Encrypt sensitive local data where platform support permits; use OS secure storage for refresh tokens. Provide logout/device revocation and local cache clearing.
+Android survey SQLite and its photo BLOBs use SQLCipher; the random password is wrapped
+with an Android Keystore AES-GCM key and the wrapped bytes are stored in app-private
+no-backup files, not SharedPreferences. Refresh tokens use separate secure storage. Cloud
+backup and device transfer are excluded; reinstall, device loss or Keystore key loss can
+make device-only data unrecoverable. Plaintext legacy data is deleted only after an explicit
+warning and confirmation, including pending operation, device-local record and photo counts;
+server data is re-synced after sign-in. Unsynced changes and local-only photos are lost.
+See [Android client guidance](../apps/client/README.md) for picker cache and recovery limits.
 
 ## Current implementation limits and contract
 **Single client write path (Android):** `POST /api/v1/sync/push` is the **only** domain
