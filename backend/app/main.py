@@ -8,6 +8,7 @@ from app.api.routes import router as api_router
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.request_limits import RequestLimitMiddleware
+from app.services.pdf_text import register_fonts
 
 
 @asynccontextmanager
@@ -17,6 +18,8 @@ async def lifespan(app):
     # Production schema is owned by Alembic. Fail startup if the DB is unavailable.
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
+    # Exports must never fall back to a system font: refuse to start without the bundled one.
+    register_fonts()
     yield
 
 app = FastAPI(

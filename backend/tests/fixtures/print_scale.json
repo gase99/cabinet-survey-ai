@@ -1,0 +1,55 @@
+{
+  "_comment": "Print-scale fixtures for PDF export. Each case renders real engine SVG through render_views_pdf and measures the drawn shape in PDF points (1 pt = 25.4/72 mm). paper_mm = model_mm / scale. Room rectangles are axis-aligned so the expected lengths are exact.",
+  "cases": [
+    {
+      "name": "elevation_3000_wall_a4",
+      "view": "elevation",
+      "layout": "A4",
+      "room_mm": [3000, 2000],
+      "wall_height_mm": 2700,
+      "expected_scale": 20,
+      "measure": "wall_rect",
+      "expected_paper_mm": [150.0, 135.0]
+    },
+    {
+      "name": "elevation_3000_wall_a3",
+      "view": "elevation",
+      "layout": "A3",
+      "room_mm": [3000, 2000],
+      "wall_height_mm": 2700,
+      "expected_scale": 20,
+      "measure": "wall_rect",
+      "expected_paper_mm": [150.0, 135.0]
+    },
+    {
+      "name": "elevation_12000_wall_a4",
+      "view": "elevation",
+      "layout": "A4",
+      "room_mm": [12000, 3000],
+      "wall_height_mm": 2400,
+      "expected_scale": 100,
+      "measure": "wall_rect",
+      "expected_paper_mm": [120.0, 24.0]
+    },
+    {
+      "name": "plan_6000_by_4000_a4",
+      "view": "plan",
+      "layout": "A4",
+      "room_mm": [6000, 4000],
+      "wall_height_mm": 2700,
+      "expected_scale": 50,
+      "measure": "room_outline",
+      "expected_paper_mm": [120.0, 80.0]
+    },
+    {
+      "name": "plan_3000_by_2000_a4",
+      "view": "plan",
+      "layout": "A4",
+      "room_mm": [3000, 2000],
+      "wall_height_mm": 2700,
+      "expected_scale": 25,
+      "measure": "room_outline",
+      "expected_paper_mm": [120.0, 80.0]
+    }
+  ]
+}

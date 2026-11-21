@@ -19,6 +19,9 @@ Base path: `/api/v1` (plus root probe routes `/health` and `/ready`). OpenAPI is
   `GET /exports/{id}/download` returns the file only when `done`, otherwise `409` with
   the current status. Audit: `export.create` (queued), then `export.complete` or
   `export.fail`. A failed render releases its Idempotency-Key so the same key can retry.
+- **Export output:** PDF pages use only the bundled Vazirmatn font (Persian shaped, RTL
+  ordered) and draw each view at a stated standard scale (e.g. `Scale 1:20 on A4`) with a
+  scale bar; PNG is a fitted overview, not to scale. See `docs/export-output.md`.
 - Telegram: client routes `/telegram/{pairing-code,link-status,unlink,send,deliveries}`; internal worker-only routes `/telegram/{verify-pairing,internal/pending-deliveries,internal/deliveries/{id},internal/delivery-result}` (denied at the public gateway); `POST /api/v1/telegram/webhook` is intentionally disabled (`501`, gateway `404`) because public Bot API webhooks route to `services/telegram-bot` (`POST /telegram/webhook` -> worker `:8081/webhook`)
 - Offline sync & admin: `/sync/push`, `/sync/pull`, `/sync/conflicts`, `/admin/{users,ai-config,ai-usage,audit,health}`
 
