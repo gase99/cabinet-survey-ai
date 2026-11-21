@@ -13,6 +13,35 @@ class LocalResetRequired implements Exception {
   const LocalResetRequired({this.pending, this.photos, this.localRecords, this.invalidKey = false});
 }
 
+/// A generic open failure (for example SQLCipher `open_failed`, or a transient Keystore
+/// error). The UI must offer "try again" before any destructive reset is shown.
+class LocalOpenFailed implements Exception {
+  const LocalOpenFailed();
+}
+
+/// Classifies storage-open failures. Only "not a database", "file is encrypted" and a
+/// missing wrapped key are reset-immediately; anything else on an existing database is
+/// retryable first. Returns null when the error must be rethrown unchanged.
+class OpenFailureClassifier {
+  static const wrappedKeyMissing = 'WRAPPED_KEY_MISSING';
+
+  static Exception? database(String message, {required bool exists}) {
+    if (!exists) return null;
+    final text = message.toLowerCase();
+    if (text.contains('not a database') || text.contains('file is encrypted')) {
+      return const LocalResetRequired(invalidKey: true);
+    }
+    if (text.contains('open_failed')) return const LocalOpenFailed();
+    return null;
+  }
+
+  static Exception? key(PlatformException error, {required bool exists}) {
+    if (!exists) return null;
+    if (error.code == wrappedKeyMissing) return const LocalResetRequired(invalidKey: true);
+    return const LocalOpenFailed();
+  }
+}
+
 class SecureDatabase {
   static const channel = MethodChannel('com.cabinetsurvey.client/local_security');
   static const oldName = 'cabinet_survey.sqlite';
@@ -53,8 +82,9 @@ class SecureDatabase {
     final String password;
     try {
       password = (await channel.invokeMethod<String>('databasePassword', {'create': !exists}))!;
-    } on PlatformException {
-      if (exists) throw const LocalResetRequired(invalidKey: true);
+    } on PlatformException catch (error) {
+      final classified = OpenFailureClassifier.key(error, exists: exists);
+      if (classified != null) throw classified;
       rethrow;
     }
     try {
@@ -67,10 +97,8 @@ class SecureDatabase {
       }
       return db;
     } on plain.DatabaseException catch (error) {
-      final text = error.toString().toLowerCase();
-      if (exists && (text.contains('not a database') || text.contains('file is encrypted') || text.contains('open_failed'))) {
-        throw const LocalResetRequired(invalidKey: true);
-      }
+      final classified = OpenFailureClassifier.database(error.toString(), exists: exists);
+      if (classified != null) throw classified;
       rethrow;
     }
   }

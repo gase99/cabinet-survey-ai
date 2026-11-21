@@ -23,6 +23,8 @@ class MainActivity : FlutterActivity() {
                         "pickerCachePath" -> result.success(cacheDir.absolutePath)
                         else -> result.notImplemented()
                     }
+                } catch (error: WrappedKeyMissingException) {
+                    result.error(WRAPPED_KEY_MISSING, "Wrapped database key unavailable", null)
                 } catch (error: Exception) {
                     result.error("LOCAL_SECURITY_ERROR", "Local security operation failed", null)
                 }
@@ -95,6 +97,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        const val WRAPPED_KEY_MISSING = "WRAPPED_KEY_MISSING"
         const val SECURITY_CHANNEL = "com.cabinetsurvey.client/local_security"
         const val CHANNEL = "com.cabinetsurvey.client/documents"
         const val SAVE_REQUEST = 4310
