@@ -12,19 +12,19 @@ class LocalStore {
   final Database db;
   final String owner;
   LocalStore(this.db, this.owner);
-  static Future<Database> open({DatabaseFactory? testFactory, String path = 'cabinet_survey.sqlite'}) async {
-    final factory = testFactory ?? databaseFactory;
-    return factory.openDatabase(path, options: OpenDatabaseOptions(
-      version: 1,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: (db, version) async {
-        await db.execute('CREATE TABLE records (owner TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,id))');
-        await db.execute('CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, id TEXT UNIQUE NOT NULL, body TEXT NOT NULL, state TEXT NOT NULL, result TEXT)');
-        await db.execute('CREATE TABLE revisions (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, entity_id TEXT NOT NULL, body TEXT NOT NULL, FOREIGN KEY(owner, entity_id) REFERENCES records(owner, id))');
-        await db.execute('CREATE TABLE photos (owner TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(owner,id), FOREIGN KEY(owner, project_id) REFERENCES records(owner, id))');
-      }));
+  static Future<void> configure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  }
+  static Future<void> create(Database db, int version) async {
+    await db.execute('CREATE TABLE records (owner TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,id))');
+    await db.execute('CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, id TEXT UNIQUE NOT NULL, body TEXT NOT NULL, state TEXT NOT NULL, result TEXT)');
+    await db.execute('CREATE TABLE revisions (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, entity_id TEXT NOT NULL, body TEXT NOT NULL, FOREIGN KEY(owner, entity_id) REFERENCES records(owner, id))');
+    await db.execute('CREATE TABLE photos (owner TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(owner,id), FOREIGN KEY(owner, project_id) REFERENCES records(owner, id))');
+  }
+  // The production provider uses SecureDatabase; this factory seam is for VM tests.
+  static Future<Database> open({required DatabaseFactory testFactory, String path = 'cabinet_survey.sqlite'}) async {
+    return testFactory.openDatabase(path, options: OpenDatabaseOptions(
+      version: 1, onConfigure: configure, onCreate: create));
   }
   Future<List<Json>> list(String kind, {bool includeDeleted = false}) async => (await db.query('records',
     where: 'owner=? AND kind=?', whereArgs: [owner, kind]))

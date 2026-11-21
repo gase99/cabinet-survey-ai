@@ -39,8 +39,26 @@ to debug signing. CI uses a disposable key solely to test AAB compilation, with 
 invalid API host; its artifact is **not for publication or connected production use**.
 
 ## Android integration
-- `sqflite` uses native Android storage; the browser FFI/WASM dependency is removed.
-- Refresh tokens use Android secure storage. Survey SQLite/photos are **not encrypted**.
+- Survey data and photo BLOBs use SQLCipher via `sqflite_sqlcipher`; VM-only tests use
+  `sqflite_common_ffi` and do not verify encryption. The database password is random.
+  Android Keystore holds a non-exportable AES-GCM wrapping key; only the wrapped password
+  and IV are written to app-private `noBackupFilesDir`, never SharedPreferences. Refresh
+  tokens continue to use their separate Android secure-storage implementation.
+- On the first upgrade from plaintext SQLite, the app shows counts of pending/conflicted
+  operations, device-local records and stored photos. With explicit confirmation it deletes
+  the old database and `-wal`, `-shm`, and `-journal`, creates an encrypted database and
+  attempts a server re-sync after sign-in. Unreadable counts are shown as unknown. **All
+  unsynced changes, device-local data and photos are permanently lost**: photo sync is not
+  implemented. Cancel leaves the old data untouched. Failed sync remains marked for retry.
+- If the encrypted database key is unavailable or wrong, the app asks before wiping the
+  encrypted cache, creates a new key/database, and re-syncs server data after sign-in.
+  Other storage errors fail closed rather than automatically deleting data.
+- Backup and device-transfer rules exclude app data. Uninstall, device replacement, loss
+  of the Keystore key, and unsupported restores make device-only data unrecoverable. Keep
+  server sync current; photos are local-only and require a separate owner-managed copy.
+- Picker temporary files in the app cache are cleared after success, failure or cancellation
+  and on startup. Files created by external camera/gallery apps and user originals are outside
+  this app's control. File deletion is not guaranteed physical secure erasure on flash storage.
 - Camera/gallery use the system picker; no broad storage or CAMERA manifest permission.
 - PDF/PNG saving uses `ACTION_CREATE_DOCUMENT`, so the user chooses the destination.
   Cancellation is not reported as a successful save. No legacy external-storage permission.

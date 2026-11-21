@@ -12,6 +12,20 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val security = LocalSecurity(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "databasePassword" -> result.success(security.databasePassword(call.argument<Boolean>("create") == true))
+                        "resetKey" -> { security.resetKey(); result.success(null) }
+                        "clearPickerCache" -> { security.clearPickerCache(); result.success(null) }
+                        else -> result.notImplemented()
+                    }
+                } catch (error: Exception) {
+                    result.error("LOCAL_SECURITY_ERROR", "Local security operation failed", null)
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method != "saveDocument") {
@@ -80,6 +94,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        const val SECURITY_CHANNEL = "com.cabinetsurvey.client/local_security"
         const val CHANNEL = "com.cabinetsurvey.client/documents"
         const val SAVE_REQUEST = 4310
     }
