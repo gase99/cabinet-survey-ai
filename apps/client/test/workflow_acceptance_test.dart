@@ -43,10 +43,11 @@ void main() {
           if(i==0) ...wallProposal.prefill(),
           'id':ids[i],'room_id':room,'label':'Wall $i','length_mm':a[4],
           'height_mm':2700,'start_x_mm':a[0],'start_y_mm':a[1],'end_x_mm':a[2],'end_y_mm':a[3],
-          if(i>0) 'source':'manual'});
+          'source':i==0?'voice_ai':'manual'});
       }
       await first.store.save('element',{
         ...windowProposal.prefill(),
+        'source':'voice_ai',
         'id':window,'wall_id':ids.first,'label':'Window','kind':'window',
         'offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900});
       expect((await first.store.get(ids.first))!['review_status'],'needs_review');

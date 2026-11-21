@@ -113,18 +113,19 @@ void main() {
       testFactory: databaseFactoryFfiNoIsolate,
       path: '${dir.path}/provenance.sqlite',
     );
-    List<Json> pushedOperations = const [];
+    final pushedOperations = <Json>[];
     final api = Api(
       baseUrl: 'https://example.invalid/api/v1/',
       client: MockClient((request) async {
         final path = request.url.path;
         if (path.endsWith('/sync/push')) {
           final decoded = jsonDecode(request.body) as Json;
-          pushedOperations = (decoded['operations'] as List).cast<Json>();
+          final ops = (decoded['operations'] as List).cast<Json>();
+          pushedOperations.addAll(ops);
           return http.Response.bytes(
             utf8.encode(jsonEncode({
               'results': [
-                for (final op in pushedOperations)
+                for (final op in ops)
                   {'id': op['id'], 'status': 'applied', 'new_version': 1},
               ],
             })),
