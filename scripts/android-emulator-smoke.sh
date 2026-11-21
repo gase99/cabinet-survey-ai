@@ -4,5 +4,6 @@ set -euo pipefail
 flutter doctor -v
 flutter test integration_test/local_encryption_test.dart -d emulator-5554 --reporter expanded
 flutter test integration_test/android_smoke_test.dart -d emulator-5554 --reporter expanded
+adb -s emulator-5554 shell run-as com.cabinetsurvey.client.debug ls -la databases no_backup || true
 adb -s emulator-5554 shell am force-stop com.cabinetsurvey.client.debug
 flutter test integration_test/android_smoke_test.dart -d emulator-5554 --reporter expanded --dart-define=VERIFY_REOPEN=true
