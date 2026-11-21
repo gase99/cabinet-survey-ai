@@ -109,8 +109,8 @@ void main() {
       expect(plan['area_mm2'],12000000);expect(plan['errors'],isEmpty);
       expect((plan['elevations'] as Json).length,4);
       for(final format in ['pdf','png']) {
-        final job=await reopened.api.request('POST','exports/$project',{'format':format,'layout':'A4'}) as Json;
-        final data=await reopened.api.bytes('exports/${job['id']}/download');
+        final data=await reopened.api.exportDocument(project,{'format':format,'layout':'A4'},
+          pollInterval:const Duration(milliseconds:200));
         expect(data.length,greaterThan(1000));
         expect(data.first,format=='pdf'?37:137);
       }

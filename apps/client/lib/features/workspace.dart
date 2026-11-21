@@ -171,8 +171,7 @@ class _WorkspaceState extends State<Workspace> {
       if((await c.store.queue()).any((r) => r['state']!='applied' && r['state']!='resolved')) throw StateError('Resolve pending changes before exporting');
       final format=(value['format'] as String).toLowerCase(), layout=(value['layout'] as String).toUpperCase();
       if(!['pdf','png'].contains(format) || !['A4','A3'].contains(layout)) throw const FormatException('Choose pdf/png and A4/A3');
-      final job=await c.api.request('POST','exports/${project['id']}',{'format':format,'layout':layout},{'Idempotency-Key':uuid.v4()}) as Json;
-      final bytes=await c.api.bytes('exports/${job['id']}/download');
+      final bytes=await c.api.exportDocument(project['id'] as String,{'format':format,'layout':layout},idempotencyKey:uuid.v4());
       final saved=await const DocumentSaver().save(name:'survey-${project['id']}.$format',bytes:bytes,pdf:format=='pdf');
       if(saved && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tr(context,'Document saved'))));
     });

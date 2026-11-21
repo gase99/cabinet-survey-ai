@@ -80,4 +80,44 @@ void main() {
     expect(body, contains('content-type: image/png'));
     api.close();
   });
+  test('exportDocument polls queued -> running -> done, then downloads', () async {
+    final calls=<String>[];
+    var polls=0;
+    final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      if(request.method=='POST') {
+        expect(request.headers['Idempotency-Key'],'idem-exp');
+        return http.Response(jsonEncode({'id':'job-9','status':'queued'}),202);
+      }
+      if(request.url.path.endsWith('/download')) return http.Response.bytes([37,80,68,70],200);
+      polls++;
+      return http.Response(jsonEncode({'id':'job-9','status':polls==1?'running':'done'}),200);
+    }));
+    final data=await api.exportDocument('p1',{'format':'pdf','layout':'A4'},idempotencyKey:'idem-exp',
+      pollInterval:Duration.zero);
+    expect(data,[37,80,68,70]);
+    expect(calls,['POST /api/v1/exports/p1','GET /api/v1/exports/job-9','GET /api/v1/exports/job-9',
+      'GET /api/v1/exports/job-9/download']);
+    api.close();
+  });
+  test('exportDocument surfaces a failed job and never downloads', () async {
+    var downloads=0;
+    final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async {
+      if(request.method=='POST') return http.Response(jsonEncode({'id':'job-f','status':'queued'}),202);
+      if(request.url.path.endsWith('/download')) { downloads++; return http.Response('',200); }
+      return http.Response(jsonEncode({'id':'job-f','status':'failed','error_message':'Drawing rendering failed'}),200);
+    }));
+    await expectLater(api.exportDocument('p1',{'format':'pdf'},pollInterval:Duration.zero),
+      throwsA(isA<ApiException>().having((e) => e.message,'message','Drawing rendering failed')));
+    expect(downloads,0);
+    api.close();
+  });
+  test('exportDocument stops polling at the timeout', () async {
+    final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async =>
+      http.Response(jsonEncode({'id':'job-s','status':request.method=='POST'?'queued':'running'}),
+        request.method=='POST'?202:200)));
+    await expectLater(api.exportDocument('p1',{'format':'pdf'},pollInterval:Duration.zero,timeout:Duration.zero),
+      throwsA(isA<ApiException>().having((e) => e.status,'status',504)));
+    api.close();
+  });
 }

@@ -88,6 +88,7 @@ Physical camera, document-picker interaction and print/device acceptance still n
 ## Existing product limitations
 Guest-to-account migration, background/photo sync, deletion tombstones, full sketch
 correction/OCR/voice, persistent undo and drag/snapping editor remain incomplete.
-Server export currently selects the first room; Persian PDF shaping and physical print
-scale are not accepted. AI candidates are not automatically imported as measurements.
+Server export includes every room and renders in the background (the app polls the job
+status before downloading); see `docs/export-output.md` for what PDF font shaping and
+print scale verification does and does not cover. AI candidates are not automatically imported as measurements.
 See the Persian delivery report; source compilation does not erase these limitations.

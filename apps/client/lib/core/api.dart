@@ -73,6 +73,26 @@ class Api {
     return jsonDecode(utf8.decode(response.bodyBytes)) as Json;
   }
   Future<Uint8List> bytes(String path) async => (await _send('GET', path, null)).bodyBytes;
+  /// Server exports render in the background: POST returns a `queued` job (202). Poll
+  /// its status (queued -> running -> done | failed), then download the finished file.
+  Future<Uint8List> exportDocument(String projectId, Json body, {String? idempotencyKey,
+      Duration pollInterval = const Duration(seconds: 1), Duration timeout = const Duration(minutes: 5)}) async {
+    var job = await request('POST', 'exports/$projectId', body,
+        idempotencyKey == null ? null : {'Idempotency-Key': idempotencyKey}) as Json;
+    final id = job['id'] as String;
+    final deadline = DateTime.now().add(timeout);
+    while (job['status'] != 'done') {
+      if (job['status'] == 'failed') {
+        throw ApiException(500, '${job['error_message'] ?? 'Export failed'}');
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw ApiException(504, 'Export is still ${job['status']}; try again later');
+      }
+      await Future<void>.delayed(pollInterval);
+      job = await request('GET', 'exports/$id') as Json;
+    }
+    return bytes('exports/$id/download');
+  }
   Future<Json> sketch(Uint8List bytes, String filename) async {
     final mime = bytes.length >= 8 && bytes[0] == 137 && bytes[1] == 80
       ? 'image/png' : bytes.length >= 3 && bytes[0] == 255 && bytes[1] == 216
