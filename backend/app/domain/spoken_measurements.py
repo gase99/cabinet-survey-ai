@@ -102,7 +102,7 @@ _CORRECTION_RE = re.compile(
 # Segments split on sentence punctuation. A decimal point between digits is
 # never a sentence separator ("2.7 meters" stays one segment).
 _SEGMENT_SPLIT_RE = re.compile(
-    rf"(?<!\d)\.(?!\d)|[!؟?\n؛;]+"
+    r"(?<!\d)\.(?!\d)|[!؟?\n؛;]+"
 )
 
 # Elided tail unit ("سه متر و بیست"): the tail must fit inside the previous
@@ -167,7 +167,7 @@ def _unit_code(unit_text: str | None) -> str | None:
 
 
 def _to_mm(value: float, unit: str) -> int:
-    return int(round(value * _UNIT_SCALE[unit]))
+    return round(value * _UNIT_SCALE[unit])
 
 
 def _match_value(match: re.Match[str]) -> float | None:
@@ -179,10 +179,6 @@ def _match_value(match: re.Match[str]) -> float | None:
             return None
     spoken = _word_value(text)
     return None if spoken is None else float(spoken)
-
-
-def _kind_label(kind: str | None) -> str:
-    return _KIND_LABELS.get(kind or "", kind or "measurement")
 
 
 _KIND_WINDOW = 48
@@ -337,15 +333,23 @@ def _chain_observations(
 
     # Multi-part chain. An elided tail ("سه متر و بیست") may inherit the smaller
     # unit only when it fits strictly inside the previous unit's ratio.
-    if unit_of(chain[-1]) is None and value_of(chain[-1]) is not None:
-        head_units = [unit_of(position) for position in chain[:-1]]
-        if head_units and all(unit is not None for unit in head_units):
-            first_unit = head_units[0]
-            tail_value = int(value_of(chain[-1]))
+    tail_raw_val = value_of(chain[-1])
+    if unit_of(chain[-1]) is None and tail_raw_val is not None:
+        head_pairs: list[tuple[float, str]] = []
+        head_valid = True
+        for position in chain[:-1]:
+            hv = value_of(position)
+            hu = unit_of(position)
+            if hv is None or hu is None:
+                head_valid = False
+                break
+            head_pairs.append((hv, hu))
+        if head_valid and head_pairs:
+            first_unit = head_pairs[0][1]
+            tail_value = int(tail_raw_val)
             tail_range = _ELIDED_TAILS.get(first_unit)
             if tail_range and tail_range[0] <= tail_value <= tail_range[1]:
-                total = sum(_to_mm(value_of(position), unit_of(position))
-                            for position in chain[:-1])
+                total = sum(_to_mm(hv, hu) for hv, hu in head_pairs)
                 total += _to_mm(tail_value, tail_range[2])
                 return [_observation(
                     source_text, span, total, "mm", kind, correcting,
@@ -361,11 +365,21 @@ def _chain_observations(
         return _chain_observations(segment, matches, chain[:-1], kind, correcting, ambiguities)
 
     # All parts carry units: merge only strictly descending scales (m > cm > mm).
-    scales = [_UNIT_SCALE[unit_of(position)] for position in chain]
-    if all(scales[i] > scales[i + 1] for i in range(len(scales) - 1)):
-        total = sum(_to_mm(value_of(position), unit_of(position)) for position in chain)
-        return [_observation(source_text, span, total, "mm", kind, correcting,
-                             extra_ambiguity=None, ambiguities=ambiguities)]
+    chain_pairs: list[tuple[float, str]] = []
+    all_present = True
+    for position in chain:
+        cv = value_of(position)
+        cu = unit_of(position)
+        if cv is None or cu is None:
+            all_present = False
+            break
+        chain_pairs.append((cv, cu))
+    if all_present and chain_pairs:
+        scales = [_UNIT_SCALE[cu] for _, cu in chain_pairs]
+        if all(scales[i] > scales[i + 1] for i in range(len(scales) - 1)):
+            total = sum(_to_mm(cv, cu) for cv, cu in chain_pairs)
+            return [_observation(source_text, span, total, "mm", kind, correcting,
+                                 extra_ambiguity=None, ambiguities=ambiguities)]
 
     # Mixed, non-descending units: keep the members as separate observations.
     results: list[dict[str, Any]] = []

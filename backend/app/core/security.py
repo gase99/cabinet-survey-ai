@@ -1,9 +1,8 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional
 import re
 import secrets
+from datetime import UTC, datetime, timedelta
 
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -22,14 +21,14 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 def create_access_token(subject: str, expires_minutes: int | None = None, *, session_id: str | None = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes or settings.jwt_access_token_expire_minutes)
-    payload = {"sub": subject, "type": "access", "exp": expire, "iat": datetime.now(timezone.utc)}
+    expire = datetime.now(UTC) + timedelta(minutes=expires_minutes or settings.jwt_access_token_expire_minutes)
+    payload = {"sub": subject, "type": "access", "exp": expire, "iat": datetime.now(UTC)}
     payload.update(sid=session_id, jti=secrets.token_hex(16))
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 def create_refresh_token(subject: str, *, session_id: str | None = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_token_expire_days)
-    payload = {"sub": subject, "type": "refresh", "exp": expire, "iat": datetime.now(timezone.utc)}
+    expire = datetime.now(UTC) + timedelta(days=settings.jwt_refresh_token_expire_days)
+    payload = {"sub": subject, "type": "refresh", "exp": expire, "iat": datetime.now(UTC)}
     payload.update(sid=session_id, jti=secrets.token_hex(16))
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

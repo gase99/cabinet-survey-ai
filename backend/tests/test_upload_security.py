@@ -1,6 +1,7 @@
 import io
-from pathlib import Path
+
 from PIL import Image
+
 from app.core.config import settings
 
 

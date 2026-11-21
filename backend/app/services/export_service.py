@@ -1,13 +1,14 @@
 """Render deterministic engine SVGs, never substitute simulated room rectangles."""
 import io
 import os
-from pathlib import Path
 import uuid
+from pathlib import Path
+
 from PIL import Image, ImageDraw
+from reportlab.graphics import renderPDF, renderPM
 from reportlab.lib.pagesizes import A3, A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
-from reportlab.graphics import renderPDF, renderPM
 from svglib.svglib import svg2rlg
 
 PAGE_SIZES = {"A4": A4, "A3": A3}
@@ -162,7 +163,8 @@ def render_views_png(
         drawing.width *= factor
         drawing.height *= factor
         png = renderPM.drawToString(drawing, fmt="PNG", backend="_renderPM")
-        tile = Image.open(io.BytesIO(png)).convert("RGB")
+        png_bytes = png if isinstance(png, bytes) else png.encode("latin1")
+        tile = Image.open(io.BytesIO(png_bytes)).convert("RGB")
         image.paste(
             tile,
             (100 + (index % columns) * cell_w, top_offset + (index // columns) * cell_h),

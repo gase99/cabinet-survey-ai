@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.db_models import User, Project, Room, Wall, Element, DrawingVersion
-from app.services.geometry_service import walls_and_elements_from_room
+from app.models.db_models import DrawingVersion, Element, Project, Room, User, Wall
 from app.services.audit import log_audit
+from app.services.geometry_service import walls_and_elements_from_room
 from app.services.revisions import missing_element_dimensions, missing_wall_dimensions
 
 router = APIRouter(prefix="/drawings", tags=["drawings"])
@@ -18,7 +19,7 @@ def get_project_and_check(project_id: str, db, user):
 
 @router.get("/{project_id}/plan")
 def get_plan(project_id: str, room_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    project = get_project_and_check(project_id, db, user)
+    get_project_and_check(project_id, db, user)
     # Pick first room if not specified
     if room_id:
         room = db.get(Room, room_id)
@@ -47,7 +48,7 @@ def get_plan(project_id: str, room_id: str | None = None, db: Session = Depends(
 
 @router.get("/{project_id}/elevations")
 def get_elevations(project_id: str, room_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    project = get_project_and_check(project_id, db, user)
+    get_project_and_check(project_id, db, user)
     if room_id:
         room = db.get(Room, room_id)
         if not room or room.project_id != project_id or room.is_deleted:
@@ -63,7 +64,7 @@ def get_elevations(project_id: str, room_id: str | None = None, db: Session = De
 
 @router.get("/{project_id}/plan.svg", response_class=PlainTextResponse)
 def get_plan_svg(project_id: str, room_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    project = get_project_and_check(project_id, db, user)
+    get_project_and_check(project_id, db, user)
     room = db.get(Room, room_id) if room_id else db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
     if not room or room.project_id != project_id or room.is_deleted:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -74,7 +75,7 @@ def get_plan_svg(project_id: str, room_id: str | None = None, db: Session = Depe
 
 @router.post("/{project_id}/versions", status_code=201)
 def create_drawing_version(project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    project = get_project_and_check(project_id, db, user)
+    get_project_and_check(project_id, db, user)
     room = db.query(Room).filter(Room.project_id == project_id, Room.is_deleted.is_(False)).first()
     if not room:
         raise HTTPException(status_code=404, detail="No rooms")
@@ -83,15 +84,13 @@ def create_drawing_version(project_id: str, db: Session = Depends(get_db), user:
     result = walls_and_elements_from_room(room, walls, elements)
     if result.errors:
         raise HTTPException(status_code=400, detail={"message": "Cannot version with geometry errors", "errors": [{"code": e.code, "message": e.message} for e in result.errors]})
-    if any(
-        e.review_status != "approved"
-        or (
-            missing_wall_dimensions(e)
-            if isinstance(e, Wall)
-            else missing_element_dimensions(e)
-        )
-        for e in [*walls, *elements]
-    ):
+    walls_incomplete = any(
+        w.review_status != "approved" or missing_wall_dimensions(w) for w in walls
+    )
+    elems_incomplete = any(
+        e.review_status != "approved" or missing_element_dimensions(e) for e in elements
+    )
+    if walls_incomplete or elems_incomplete:
         raise HTTPException(
             status_code=409,
             detail="Explicit approval and complete dimensions are required before versioning",
@@ -108,6 +107,6 @@ def create_drawing_version(project_id: str, db: Session = Depends(get_db), user:
 
 @router.get("/{project_id}/versions")
 def list_versions(project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    project = get_project_and_check(project_id, db, user)
+    get_project_and_check(project_id, db, user)
     versions = db.query(DrawingVersion).filter(DrawingVersion.project_id == project_id).order_by(DrawingVersion.version.desc()).all()
     return [{"id": v.id, "version": v.version, "created_at": v.created_at, "created_by": v.created_by} for v in versions]

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Element, Project, Room, User, Wall
@@ -7,7 +8,11 @@ from app.schemas.revision import MeasurementRevisionOut
 from app.schemas.wall import WallCreate, WallOut, WallUpdate
 from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
-from app.services.provenance import bind_observation_to_measurement, sync_linked_observation_approval
+from app.services.provenance import (
+    bind_observation_to_measurement,
+    sync_linked_observation_approval,
+    unlink_replaced_observation,
+)
 from app.services.revisions import (
     append_revision,
     approve_entity,
@@ -26,6 +31,8 @@ def get_room_and_check(room_id: str, db: Session, user: User, *, allow_deleted: 
     if not room or (room.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Room not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if project.is_deleted and not allow_deleted:
@@ -38,7 +45,11 @@ def get_wall_and_check(wall_id: str, db: Session, user: User, *, allow_deleted: 
     if not wall or (wall.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Wall not found")
     room = db.get(Room, wall.room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Wall not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Wall not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if (room.is_deleted or project.is_deleted) and not allow_deleted:
@@ -203,14 +214,21 @@ def update_wall(
     )
     old_snap = entity_snapshot("wall", wall)
     was_approved = wall.review_status == "approved"
-    if data.get("source_observation_id"):
-        bind_observation_to_measurement(
+    previous_obs_id = wall.source_observation_id
+    if "source_observation_id" in data:
+        if data["source_observation_id"]:
+            bind_observation_to_measurement(
+                db,
+                observation_id=data["source_observation_id"],
+                user_id=user.id,
+                project_id=project.id,
+                entity_type="wall",
+                entity_id=wall.id,
+            )
+        unlink_replaced_observation(
             db,
-            observation_id=data["source_observation_id"],
-            user_id=user.id,
-            project_id=project.id,
-            entity_type="wall",
-            entity_id=wall.id,
+            previous_observation_id=previous_obs_id,
+            new_observation_id=data["source_observation_id"],
         )
     for k, v in data.items():
         if k != "review_status":

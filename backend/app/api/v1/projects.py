@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from sqlalchemy import desc, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Customer, Project, User
@@ -73,7 +74,7 @@ def list_projects(
     if status:
         query = query.filter(Project.status == status)
     query = (
-        query.order_by(desc(Project.updated_at))
+        query.order_by(Project.updated_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -87,7 +88,7 @@ def recent_projects(
     return (
         db.query(Project)
         .filter(Project.owner_id == user.id, Project.is_deleted.is_(False))
-        .order_by(desc(Project.updated_at))
+        .order_by(Project.updated_at.desc())
         .limit(5)
         .all()
     )
@@ -252,7 +253,7 @@ def project_history(
     events = (
         db.query(AuditEvent)
         .filter(AuditEvent.project_id == project_id)
-        .order_by(desc(AuditEvent.created_at))
+        .order_by(AuditEvent.created_at.desc())
         .limit(100)
         .all()
     )

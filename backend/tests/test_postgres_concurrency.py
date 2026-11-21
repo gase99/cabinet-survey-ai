@@ -2,14 +2,16 @@
 import concurrent.futures
 import os
 import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
-from sqlalchemy.orm import Session
 from sqlalchemy.engine import make_url
-from app.main import app
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import engine
+from app.main import app
 from app.models.db_models import AuthThrottle
 
 url=make_url(settings.database_url)
@@ -82,6 +84,7 @@ def test_postgres_concurrent_rest_put_returns_409_on_stale_version():
 def test_postgres_audit_triggers_block_raw_sql_mutation():
     from sqlalchemy import text
     from sqlalchemy.exc import DatabaseError
+
     from app.models.db_models import AuditEvent
 
     with TestClient(app) as client:
@@ -96,4 +99,98 @@ def test_postgres_audit_triggers_block_raw_sql_mutation():
         with pytest.raises(DatabaseError):
             db.execute(text("DELETE FROM audit_events WHERE id=:id"),{'id':ev.id})
         db.rollback()
+
+
+def test_postgres_concurrent_idempotency_creates_single_export_and_delivery(monkeypatch):
+    import threading
+
+    from app.models.db_models import ExportJob, TelegramDelivery
+
+    monkeypatch.setattr(settings, "telegram_worker_secret", "pg-idem-worker-secret-012345")
+    with TestClient(app) as client:
+        headers = account(client)
+        project = client.post(
+            "/api/v1/projects", headers=headers, json={"title": "PG Idempotency Lock"}
+        ).json()["id"]
+        room = client.post(
+            f"/api/v1/projects/{project}/rooms", headers=headers, json={"label": "Kitchen"}
+        ).json()["id"]
+        coords = [
+            ("North", 4000, 0, 0, 4000, 0),
+            ("East", 3000, 4000, 0, 4000, 3000),
+            ("South", 4000, 4000, 3000, 0, 3000),
+            ("West", 3000, 0, 3000, 0, 0),
+        ]
+        for label, length, sx, sy, ex, ey in coords:
+            wid = client.post(
+                f"/api/v1/rooms/{room}/walls",
+                headers=headers,
+                json={
+                    "label": label,
+                    "length_mm": length,
+                    "height_mm": 2700,
+                    "start_x_mm": sx,
+                    "start_y_mm": sy,
+                    "end_x_mm": ex,
+                    "end_y_mm": ey,
+                },
+            ).json()["id"]
+            assert client.post(f"/api/v1/walls/{wid}/approve", headers=headers).status_code == 200
+
+        code = client.post("/api/v1/telegram/pairing-code", headers=headers).json()["code"]
+        assert (
+            client.post(
+                "/api/v1/telegram/verify-pairing",
+                headers={"X-Webhook-Secret": settings.telegram_worker_secret},
+                json={"code": code, "telegram_chat_id": "888001"},
+            ).status_code
+            == 200
+        )
+
+    workers = 4
+    exp_barrier = threading.Barrier(workers)
+
+    def run_export(_idx: int):
+        with TestClient(app) as worker:
+            exp_barrier.wait(timeout=10)
+            resp = worker.post(
+                f"/api/v1/exports/{project}",
+                headers={**headers, "Idempotency-Key": "pg-export-race-key"},
+                json={"format": "pdf", "layout": "A4"},
+            )
+            return resp.status_code, resp.json()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        exp_results = list(pool.map(run_export, range(workers)))
+    assert [s for s, _ in exp_results] == [201] * workers
+    export_ids = {b["id"] for _, b in exp_results}
+    assert len(export_ids) == 1
+    export_id = next(iter(export_ids))
+
+    tg_barrier = threading.Barrier(workers)
+
+    def run_send(_idx: int):
+        with TestClient(app) as worker:
+            tg_barrier.wait(timeout=10)
+            resp = worker.post(
+                "/api/v1/telegram/send",
+                headers={**headers, "Idempotency-Key": "pg-tg-race-key"},
+                json={"export_job_id": export_id},
+            )
+            return resp.status_code, resp.json()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        tg_results = list(pool.map(run_send, range(workers)))
+    assert [s for s, _ in tg_results] == [200] * workers
+    assert len({b["delivery_id"] for _, b in tg_results}) == 1
+
+    with Session(engine) as db:
+        assert db.query(ExportJob).filter(ExportJob.project_id == project).count() == 1
+        assert (
+            db.query(TelegramDelivery)
+            .filter(TelegramDelivery.export_job_id == export_id)
+            .count()
+            == 1
+        )
+
 

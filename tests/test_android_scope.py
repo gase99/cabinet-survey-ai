@@ -62,10 +62,72 @@ def test_release_never_falls_back_to_debug_signing():
     rules = (CLIENT / 'android/app/proguard-rules.pro').read_text()
     assert '-dontwarn com.google.android.play.core.**' in rules
     assert '-ignorewarnings' not in rules
+    example = (CLIENT / 'android/key.properties.example').read_text()
+    assert 'storePassword=REPLACE_LOCALLY' in example
+    assert 'keyPassword=REPLACE_LOCALLY' in example
+    assert not (CLIENT / 'android/key.properties').exists()
     ignored = (ROOT / '.gitignore').read_text()
     assert 'apps/client/android/key.properties' in ignored
     assert '*.jks' in ignored and '*.keystore' in ignored
     assert not list((CLIENT / 'android').rglob('*.jks'))
+    assert not list((CLIENT / 'android').rglob('*.keystore'))
+    workflow = (ROOT / '.github/workflows/client-ci.yml').read_text()
+    assert 'flutter build apk --debug' in workflow
+    assert 'flutter build appbundle --release' in workflow
+    assert 'secrets.ANDROID_KEYSTORE_BASE64' in workflow
+
+
+def test_android_launcher_icons_and_localized_app_names_are_committed():
+    res = CLIENT / 'android/app/src/main/res'
+    for density in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']:
+        icon = res / f'mipmap-{density}/ic_launcher.png'
+        assert icon.is_file(), f'Missing launcher icon for {density}'
+        assert icon.read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+    assert (res / 'mipmap-anydpi-v26/ic_launcher.xml').is_file()
+    assert (res / 'drawable/ic_survey.xml').is_file()
+    assert (res / 'values/strings.xml').is_file()
+    assert (res / 'values-fa/strings.xml').is_file()
+
+
+def test_python_lockfiles_and_static_analysis_gates_are_enforced():
+    for rel in [
+        'backend/requirements.lock',
+        'backend/requirements-dev.lock',
+        'services/telegram-bot/requirements.lock',
+    ]:
+        lock = ROOT / rel
+        assert lock.is_file(), f'Missing lockfile {rel}'
+        pinned = [
+            line for line in lock.read_text().splitlines()
+            if line and not line.startswith('#') and not line.startswith(' ')
+        ]
+        assert pinned and all('==' in line for line in pinned), f'Unpinned entry in {rel}'
+    assert 'COPY requirements.lock .' in (ROOT / 'backend/Dockerfile').read_text()
+    assert 'COPY requirements.lock .' in (ROOT / 'services/telegram-bot/Dockerfile').read_text()
+    backend_ci = (ROOT / '.github/workflows/backend-ci.yml').read_text()
+    assert 'backend/requirements.lock' in backend_ci
+    assert 'backend/requirements-dev.lock' in backend_ci
+    assert 'ruff check app migrations tests' in backend_ci
+    assert 'mypy app migrations tests' in backend_ci
+    worker_ci = (ROOT / '.github/workflows/worker-ci.yml').read_text()
+    assert 'pip install -r requirements.lock' in worker_ci
+
+
+def test_phase_gate_and_telegram_single_replica_docs_are_consistent():
+    agents = (ROOT / 'AGENTS.md').read_text()
+    roadmap = (ROOT / 'docs/development-roadmap.md').read_text()
+    assert 'stop for explicit user approval at phase boundaries' in agents
+    assert 'stop for explicit user approval at every phase boundary' in roadmap
+    tg_doc = (ROOT / 'docs/telegram-deployment.md').read_text()
+    ops_doc = (ROOT / 'docs/operations.md').read_text()
+    worker_readme = (ROOT / 'services/telegram-bot/README.md').read_text()
+    compose = yaml.safe_load((ROOT / 'deploy/compose.yml').read_text()) if 'yaml' in globals() else None
+    assert 'POST /webhook' in tg_doc and 'exactly one replica' in tg_doc
+    assert 'long polling is **not**\n  implemented' in tg_doc or 'long polling is **not** implemented' in tg_doc
+    assert 'single replica (`1`)' in ops_doc
+    assert 'Strictly one replica (`1`)' in worker_readme
+    compose_text = (ROOT / 'deploy/compose.yml').read_text()
+    assert 'replicas: 1' in compose_text
 
 
 def test_three_telegram_credentials_remain_distinct():

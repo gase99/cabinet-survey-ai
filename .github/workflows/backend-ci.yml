@@ -16,8 +16,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r backend/requirements.txt
-      - run: pytest -q --junitxml=/tmp/backend-tests.xml
+      - name: Install locked backend and static-analysis dependencies
+        run: pip install -r backend/requirements.lock -r backend/requirements-dev.lock
+      - name: Ruff lint gate (backend excluding frozen geometry)
+        run: ruff check app migrations tests
+        working-directory: backend
+      - name: Mypy type-check gate (backend excluding frozen geometry)
+        run: mypy app migrations tests
+        working-directory: backend
+      - name: Repository structural and governance gates
+        run: pytest tests -q
+      - name: Backend unit and integration tests
+        run: pytest -q --junitxml=/tmp/backend-tests.xml
         working-directory: backend
   postgres-migration:
     runs-on: ubuntu-latest
@@ -42,7 +52,7 @@ jobs:
         run: git rev-parse HEAD
       - uses: actions/setup-python@v6
         with: {python-version: '3.11'}
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.lock
         working-directory: backend
       - run: alembic upgrade head && alembic check && alembic downgrade base && alembic upgrade head
         working-directory: backend

@@ -6,6 +6,7 @@ import 'package:cabinet_survey_ai/core/controller.dart';
 import 'package:cabinet_survey_ai/core/api.dart';
 import 'package:cabinet_survey_ai/core/store.dart';
 import 'package:cabinet_survey_ai/domain/survey.dart';
+import 'package:cabinet_survey_ai/domain/voice.dart';
 
 const url=String.fromEnvironment('ACCEPTANCE_API_URL');
 class _RealNetwork extends HttpOverrides {}
@@ -26,20 +27,32 @@ void main() {
       final project=uuid.v4(),room=uuid.v4(),window=uuid.v4();
       final ids=List.generate(4,(_) => uuid.v4());
       final title=language=='fa'?'آشپزخانه آزمایشی':'Acceptance kitchen';
+      final parsedAi=await first.api.parseText('Wall length: 400 cm\nWindow: 100 cm');
+      final aiProposals=proposalsFromExtraction(parsedAi);
+      final wallProposal=aiProposals.firstWhere((p) => p.wallField=='length_mm');
+      final windowProposal=aiProposals.firstWhere((p) => p.elementKind=='window');
+      expect(wallProposal.candidateId,isNotNull);
+      expect(windowProposal.candidateId,isNotNull);
       // No network is used for any capture mutation below.
       await first.store.save('project',{'id':project,'title':title,'status':'draft'});
       await first.store.save('room',{'id':room,'project_id':project,'label':title,'room_type':'rectangular'});
       final coords=[[0,0,4000,0,4000],[4000,0,4000,3000,3000],[4000,3000,0,3000,4000],[0,3000,0,0,3000]];
       for(var i=0;i<4;i++) {
         final a=coords[i];
-        await first.store.save('wall',{'id':ids[i],'room_id':room,'label':'Wall $i','length_mm':a[4],
+        await first.store.save('wall',{
+          if(i==0) ...wallProposal.prefill(),
+          'id':ids[i],'room_id':room,'label':'Wall $i','length_mm':a[4],
           'height_mm':2700,'start_x_mm':a[0],'start_y_mm':a[1],'end_x_mm':a[2],'end_y_mm':a[3],
-          'source':'manual'});
+          if(i>0) 'source':'manual'});
       }
-      await first.store.save('element',{'id':window,'wall_id':ids.first,'label':'Window','kind':'window',
-        'offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900,'source':'manual'});
+      await first.store.save('element',{
+        ...windowProposal.prefill(),
+        'id':window,'wall_id':ids.first,'label':'Window','kind':'window',
+        'offset_mm':500,'width_mm':1000,'height_mm':800,'sill_mm':900});
       expect((await first.store.get(ids.first))!['review_status'],'needs_review');
+      expect((await first.store.get(ids.first))!['source_observation_id'],wallProposal.candidateId);
       expect((await first.store.get(window))!['review_status'],'needs_review');
+      expect((await first.store.get(window))!['source_observation_id'],windowProposal.candidateId);
       expect(validateRoom((await first.store.list('wall')).map(SurveyWall.fromJson).toList(),await first.store.list('element')),isEmpty);
       expect((await first.store.queue()).length,7);
       first.api.close();first.dispose();await db.close();
@@ -51,6 +64,14 @@ void main() {
       expect((await reopened.store.queue()).length,7);
       await reopened.sync();
       expect((await reopened.store.queue()).every((r) => r['state']=='applied'),isTrue);
+      final serverWallCand=await reopened.api.request('GET','ai/candidates/${wallProposal.candidateId}') as Json;
+      final serverWinCand=await reopened.api.request('GET','ai/candidates/${windowProposal.candidateId}') as Json;
+      expect(serverWallCand['linked_entity_type'],'wall');
+      expect(serverWallCand['linked_entity_id'],ids.first);
+      expect(serverWallCand['review_status'],'needs_review');
+      expect(serverWinCand['linked_entity_type'],'element');
+      expect(serverWinCand['linked_entity_id'],window);
+      expect(serverWinCand['review_status'],'needs_review');
       final local=(await reopened.store.get(window))!;
       await reopened.store.save('element',{...local,'offset_mm':600,'review_status':'needs_review'});
       final other=Api(baseUrl:url);
@@ -81,6 +102,8 @@ void main() {
         throwsA(isA<ApiException>().having((e) => e.status,'approval required',409)));
       await reopened.store.save('element',{...resolved,'review_status':'approved'});
       await reopened.sync();
+      expect((await reopened.api.request('GET','ai/candidates/${wallProposal.candidateId}') as Json)['review_status'],'approved');
+      expect((await reopened.api.request('GET','ai/candidates/${windowProposal.candidateId}') as Json)['review_status'],'approved');
       final plan=await reopened.api.request('GET','drawings/$project/plan') as Json;
       expect(plan['area_mm2'],12000000);expect(plan['errors'],isEmpty);
       expect((plan['elevations'] as Json).length,4);

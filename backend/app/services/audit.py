@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
+
 from sqlalchemy.orm import Session
+
 from app.models.db_models import AuditEvent
 
 

@@ -1,8 +1,10 @@
 import hashlib
 import json
 from pathlib import Path
+
 import pytest
-from app.geometry.engine import WallInput, ElementInput, PointMM, build_geometry
+
+from app.geometry.engine import ElementInput, PointMM, WallInput, build_geometry
 
 FIXTURES=Path(__file__).parents[2]/'test_fixtures'/'geometry'
 
@@ -33,7 +35,7 @@ def test_untrusted_svg_labels_are_text_not_markup_and_missing_height_stays_unkno
         start=PointMM(0,0),end=PointMM(3000,0))
     element=ElementInput(id='pipe',wall_id='wall',label='</text><image href="file:///etc/passwd"/>',
         kind='gas_pipe',offset_mm=400,width_mm=50,height_mm=None,sill_mm=None)
-    from app.geometry.engine import generate_elevation_svg,generate_plan_svg
+    from app.geometry.engine import generate_elevation_svg, generate_plan_svg
     elevation=generate_elevation_svg(wall,[element])
     assert 'height ? mm; sill ? mm (unpositioned)' in elevation
     assert 'height="800"' not in elevation

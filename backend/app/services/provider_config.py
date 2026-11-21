@@ -1,9 +1,11 @@
 """Server-side provider credentials. Encryption master key is never in the database."""
+from datetime import UTC, datetime
+
 from cryptography.fernet import Fernet, InvalidToken
+
+from app.ai.provider import AIUnavailableError, get_ai_provider
 from app.core.config import settings
 from app.models.db_models import AIConfig, AIUsageLog
-from datetime import datetime, timezone
-from app.ai.provider import AIUnavailableError, get_ai_provider
 
 
 def cipher():
@@ -26,7 +28,7 @@ def configured_provider(db):
         if not config.enabled:
             raise AIUnavailableError('Selected AI provider is disabled by administrator')
         if config.usage_limit_per_day is not None:
-            start=datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0)
+            start=datetime.now(UTC).replace(hour=0,minute=0,second=0,microsecond=0)
             requests=db.query(AIUsageLog).filter(AIUsageLog.provider==config.provider, AIUsageLog.created_at>=start).count()
             if requests>=config.usage_limit_per_day:
                 raise AIUnavailableError('Provider daily request limit reached')

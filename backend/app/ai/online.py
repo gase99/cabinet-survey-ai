@@ -5,11 +5,13 @@ import base64
 import io
 import json
 from typing import Literal
+
 import httpx
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field
-from app.core.config import settings
+
 from app.ai.provider import AIUnavailableError, parse_text_measurements_deterministic
+from app.core.config import settings
 
 
 class Candidate(BaseModel):
@@ -56,9 +58,9 @@ class OpenAICompatibleProvider:
         try:
             with Image.open(io.BytesIO(image_bytes)) as image:
                 image.verify()
-                mime=Image.MIME.get(image.format)
-        except Exception:
-            raise AIUnavailableError('Invalid sketch image')
+                mime=Image.MIME.get(image.format) if image.format else None
+        except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as err:
+            raise AIUnavailableError('Invalid sketch image') from err
         if mime not in {'image/jpeg','image/png','image/webp'}:
             raise AIUnavailableError('Unsupported sketch image')
         body={'model':self.model,'temperature':0,'messages':[

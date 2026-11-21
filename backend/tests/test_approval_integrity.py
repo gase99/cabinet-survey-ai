@@ -1,7 +1,9 @@
 import io
 import uuid
+
 import pytest
 from pypdf import PdfReader
+
 from app.models.db_models import Element, MeasurementRevision
 
 
@@ -42,7 +44,7 @@ def _create_closed_room(client, auth_headers, title="Integrity Kitchen"):
 
 
 def test_manual_create_is_never_auto_approved_rest_and_sync(client, auth_headers):
-    pid, rid, wall_ids = _create_closed_room(client, auth_headers)
+    _pid, rid, wall_ids = _create_closed_room(client, auth_headers)
 
     # REST manual wall starts as needs_review with no approval metadata
     wall_a = client.get(f"/api/v1/walls/{wall_ids[0]}", headers=auth_headers).json()
@@ -291,7 +293,7 @@ def test_editing_approved_measurement_appends_revision_and_preserves_approved_hi
     approved = client.post(
         f"/api/v1/walls/{wall_id}/approve", headers=auth_headers
     ).json()
-    original_approved_at = approved["approved_at"]
+    assert approved["approved_at"] is not None
     assert approved["review_status"] == "approved"
     assert approved["approved_by"] == me["id"]
 
@@ -399,17 +401,15 @@ def test_editing_approved_measurement_appends_revision_and_preserves_approved_hi
     assert elem_revs[2]["review_status"] == "incomplete"
 
     # Revision table rows cannot be mutated or deleted in place
-    with pytest.raises(ValueError, match="immutable"):
-        with db_session.begin_nested():
-            orm_rev = db_session.get(MeasurementRevision, approved_rev["id"])
-            orm_rev.review_status = "needs_review"
-            db_session.flush()
+    with pytest.raises(ValueError, match="immutable"), db_session.begin_nested():
+        orm_rev = db_session.get(MeasurementRevision, approved_rev["id"])
+        orm_rev.review_status = "needs_review"
+        db_session.flush()
 
-    with pytest.raises(ValueError, match="immutable"):
-        with db_session.begin_nested():
-            orm_rev = db_session.get(MeasurementRevision, approved_rev["id"])
-            db_session.delete(orm_rev)
-            db_session.flush()
+    with pytest.raises(ValueError, match="immutable"), db_session.begin_nested():
+        orm_rev = db_session.get(MeasurementRevision, approved_rev["id"])
+        db_session.delete(orm_rev)
+        db_session.flush()
 
 
 def test_export_excludes_or_flags_unapproved_and_unknown_dimension_elements(

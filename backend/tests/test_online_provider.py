@@ -1,9 +1,11 @@
 import asyncio
 import io
 import json
+
 import httpx
-from PIL import Image
 import pytest
+from PIL import Image
+
 from app.ai.online import OpenAICompatibleProvider
 from app.ai.provider import AIUnavailableError, get_ai_provider
 from app.core.config import settings

@@ -1,6 +1,7 @@
 from cryptography.fernet import Fernet
+
 from app.core.config import settings
-from app.models.db_models import User,AIConfig
+from app.models.db_models import AIConfig, User
 from app.services.provider_config import configured_provider
 
 
@@ -32,8 +33,9 @@ def test_non_admin_cannot_store_provider_keys(client,auth_headers):
 
 def test_provider_disable_and_daily_limit_are_enforced(db_session,monkeypatch):
     import pytest
-    from app.models.db_models import AIUsageLog
+
     from app.ai.provider import AIUnavailableError
+    from app.models.db_models import AIUsageLog
     monkeypatch.setattr(settings,'ai_provider','openai_compatible')
     cfg=AIConfig(provider='openai_compatible',enabled=False,usage_limit_per_day=1)
     db_session.add(cfg);db_session.commit()

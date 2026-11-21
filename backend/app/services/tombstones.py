@@ -1,6 +1,8 @@
 """Soft-delete tombstones and cross-device delete propagation."""
 from datetime import datetime
+
 from sqlalchemy.orm import Session
+
 from app.models.db_models import (
     Customer,
     Element,
@@ -15,6 +17,7 @@ from app.models.db_models import (
     now_utc,
 )
 from app.services.audit import entity_snapshot, log_audit
+from app.services.provenance import sync_linked_observation_approval
 from app.services.revisions import append_revision, ensure_baseline_revision
 
 
@@ -69,7 +72,14 @@ def soft_delete_element(
     )
     elem.is_deleted = True
     elem.deleted_at = ts
+    if elem.review_status == "approved":
+        elem.review_status = "needs_review"
+    elem.approved_by = None
+    elem.approved_at = None
     elem.version += 1
+    sync_linked_observation_approval(
+        db, observation_id=elem.source_observation_id, approved=False
+    )
     db.flush()
     append_revision(
         db,
@@ -139,7 +149,14 @@ def soft_delete_wall(
     )
     wall.is_deleted = True
     wall.deleted_at = ts
+    if wall.review_status == "approved":
+        wall.review_status = "needs_review"
+    wall.approved_by = None
+    wall.approved_at = None
     wall.version += 1
+    sync_linked_observation_approval(
+        db, observation_id=wall.source_observation_id, approved=False
+    )
     db.flush()
     append_revision(
         db,
@@ -455,46 +472,46 @@ def collect_tombstones(
     items: list[dict] = []
 
     if entity_type in (None, "customer"):
-        q = db.query(Customer).filter(
+        cust_q = db.query(Customer).filter(
             Customer.owner_id == user_id,
             Customer.is_deleted.is_(True),
         )
         if since is not None:
-            q = q.filter(Customer.deleted_at > since)
-        items.extend(_tombstone_dict("customer", row) for row in q.all())
+            cust_q = cust_q.filter(Customer.deleted_at > since)
+        items.extend(_tombstone_dict("customer", row) for row in cust_q.all())
 
     if entity_type in (None, "project"):
-        q = db.query(Project).filter(
+        proj_q = db.query(Project).filter(
             Project.owner_id == user_id,
             Project.is_deleted.is_(True),
         )
         if since is not None:
-            q = q.filter(Project.deleted_at > since)
-        items.extend(_tombstone_dict("project", row) for row in q.all())
+            proj_q = proj_q.filter(Project.deleted_at > since)
+        items.extend(_tombstone_dict("project", row) for row in proj_q.all())
 
     if entity_type in (None, "room"):
-        q = (
+        room_q = (
             db.query(Room)
             .join(Project, Room.project_id == Project.id)
             .filter(Project.owner_id == user_id, Room.is_deleted.is_(True))
         )
         if since is not None:
-            q = q.filter(Room.deleted_at > since)
-        items.extend(_tombstone_dict("room", row) for row in q.all())
+            room_q = room_q.filter(Room.deleted_at > since)
+        items.extend(_tombstone_dict("room", row) for row in room_q.all())
 
     if entity_type in (None, "wall"):
-        q = (
+        wall_q = (
             db.query(Wall)
             .join(Room, Wall.room_id == Room.id)
             .join(Project, Room.project_id == Project.id)
             .filter(Project.owner_id == user_id, Wall.is_deleted.is_(True))
         )
         if since is not None:
-            q = q.filter(Wall.deleted_at > since)
-        items.extend(_tombstone_dict("wall", row) for row in q.all())
+            wall_q = wall_q.filter(Wall.deleted_at > since)
+        items.extend(_tombstone_dict("wall", row) for row in wall_q.all())
 
     if entity_type in (None, "element"):
-        q = (
+        elem_q = (
             db.query(Element)
             .join(Wall, Element.wall_id == Wall.id)
             .join(Room, Wall.room_id == Room.id)
@@ -502,25 +519,25 @@ def collect_tombstones(
             .filter(Project.owner_id == user_id, Element.is_deleted.is_(True))
         )
         if since is not None:
-            q = q.filter(Element.deleted_at > since)
-        items.extend(_tombstone_dict("element", row) for row in q.all())
+            elem_q = elem_q.filter(Element.deleted_at > since)
+        items.extend(_tombstone_dict("element", row) for row in elem_q.all())
 
     if entity_type in (None, "telegram_link"):
-        q = db.query(PairingCode).filter(
+        link_q = db.query(PairingCode).filter(
             PairingCode.user_id == user_id,
             PairingCode.is_deleted.is_(True),
         )
         if since is not None:
-            q = q.filter(PairingCode.deleted_at > since)
-        items.extend(_tombstone_dict("telegram_link", row) for row in q.all())
+            link_q = link_q.filter(PairingCode.deleted_at > since)
+        items.extend(_tombstone_dict("telegram_link", row) for row in link_q.all())
 
     if entity_type in (None, "telegram_delivery"):
-        q = db.query(TelegramDelivery).filter(
+        deliv_q = db.query(TelegramDelivery).filter(
             TelegramDelivery.owner_id == user_id,
             TelegramDelivery.is_deleted.is_(True),
         )
         if since is not None:
-            q = q.filter(TelegramDelivery.deleted_at > since)
-        items.extend(_tombstone_dict("telegram_delivery", row) for row in q.all())
+            deliv_q = deliv_q.filter(TelegramDelivery.deleted_at > since)
+        items.extend(_tombstone_dict("telegram_delivery", row) for row in deliv_q.all())
 
     return items

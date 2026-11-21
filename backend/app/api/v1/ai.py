@@ -1,7 +1,9 @@
 import hashlib
+
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
+
 from app.ai import speech
 from app.ai.provider import AIUnavailableError, parse_measurements_any
 from app.core.config import settings
@@ -63,7 +65,7 @@ async def parse_text(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except (ValueError, RuntimeError, TypeError) as e:
         db.add(
             AIUsageLog(
                 user_id=user.id,
@@ -74,7 +76,7 @@ async def parse_text(
             )
         )
         db.commit()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/sketch-analysis")
@@ -140,7 +142,7 @@ async def sketch_analysis(
         raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except (httpx.HTTPError, OSError, ValueError, RuntimeError, TypeError) as e:
         db.add(
             AIUsageLog(
                 user_id=user.id,
@@ -151,7 +153,7 @@ async def sketch_analysis(
             )
         )
         db.commit()
-        raise HTTPException(status_code=500, detail="AI analysis failed")
+        raise HTTPException(status_code=500, detail="AI analysis failed") from e
 
 
 # Transcription proxy (voice -> text). Speech recognition is provider-neutral and
@@ -251,7 +253,7 @@ def list_ai_candidates(
     if review_status:
         q = q.filter(Observation.review_status == review_status)
     rows = (
-        q.order_by(desc(Observation.created_at), desc(Observation.id))
+        q.order_by(Observation.created_at.desc(), Observation.id.desc())
         .limit(min(max(1, limit), 200))
         .all()
     )

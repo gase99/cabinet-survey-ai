@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Element, Project, Room, User, Wall
@@ -7,7 +8,11 @@ from app.schemas.element import ElementCreate, ElementOut, ElementUpdate
 from app.schemas.revision import MeasurementRevisionOut
 from app.services.audit import entity_snapshot, log_audit
 from app.services.concurrency import lock_and_verify_version, resolve_expected_version, set_etag
-from app.services.provenance import bind_observation_to_measurement, sync_linked_observation_approval
+from app.services.provenance import (
+    bind_observation_to_measurement,
+    sync_linked_observation_approval,
+    unlink_replaced_observation,
+)
 from app.services.revisions import (
     append_revision,
     approve_entity,
@@ -26,7 +31,11 @@ def get_wall_and_project(wall_id: str, db: Session, user: User, *, allow_deleted
     if not wall or (wall.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Wall not found")
     room = db.get(Room, wall.room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Wall not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Wall not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if (room.is_deleted or project.is_deleted) and not allow_deleted:
@@ -45,8 +54,14 @@ def get_element_and_project(
     if not elem or (elem.is_deleted and not allow_deleted):
         raise HTTPException(status_code=404, detail="Element not found")
     wall = db.get(Wall, elem.wall_id)
+    if wall is None:
+        raise HTTPException(status_code=404, detail="Element not found")
     room = db.get(Room, wall.room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Element not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Element not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if (wall.is_deleted or room.is_deleted or project.is_deleted) and not allow_deleted:
@@ -215,14 +230,21 @@ def update_element(
     )
     old_snap = entity_snapshot("element", elem)
     was_approved = elem.review_status == "approved"
-    if data.get("source_observation_id"):
-        bind_observation_to_measurement(
+    previous_obs_id = elem.source_observation_id
+    if "source_observation_id" in data:
+        if data["source_observation_id"]:
+            bind_observation_to_measurement(
+                db,
+                observation_id=data["source_observation_id"],
+                user_id=user.id,
+                project_id=project.id,
+                entity_type="element",
+                entity_id=elem.id,
+            )
+        unlink_replaced_observation(
             db,
-            observation_id=data["source_observation_id"],
-            user_id=user.id,
-            project_id=project.id,
-            entity_type="element",
-            entity_id=elem.id,
+            previous_observation_id=previous_obs_id,
+            new_observation_id=data["source_observation_id"],
         )
     for k, v in data.items():
         if k != "review_status":

@@ -1,7 +1,9 @@
 """Bounded upload validation, independent of untrusted filename and MIME claims."""
 import io
-from PIL import Image, UnidentifiedImageError
+
 from fastapi import HTTPException, UploadFile
+from PIL import Image, UnidentifiedImageError
+
 from app.core.config import settings
 
 TYPES={'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','application/pdf':'.pdf'}
@@ -53,7 +55,7 @@ async def validated_upload(file: UploadFile, *, images_only=False):
             with Image.open(io.BytesIO(data)) as image:
                 if image.width*image.height>40_000_000:
                     raise ValueError('Image too large')
-                actual=Image.MIME.get(image.format)
+                actual = Image.MIME.get(image.format) if image.format else None
                 if actual!=content_type:
                     raise ValueError('MIME mismatch')
                 image.verify()

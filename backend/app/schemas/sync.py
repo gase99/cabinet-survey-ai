@@ -1,5 +1,6 @@
+
 from pydantic import BaseModel, Field
-from typing import Any
+
 
 class SyncPushItem(BaseModel):
     id: str = Field(min_length=1,max_length=36)

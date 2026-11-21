@@ -49,6 +49,7 @@ def test_project_crud(client, auth_headers):
 def test_project_ownership(client):
     # Two users isolated
     h1 = client.post("/api/v1/auth/register", json={"email": "owner1@example.com", "password": "Password123", "display_name":"Owner1"})
+    assert h1.status_code == 201
     t1 = client.post("/api/v1/auth/login", json={"email": "owner1@example.com", "password": "Password123"}).json()["access_token"]
     h1h = {"Authorization": f"Bearer {t1}"}
     p = client.post("/api/v1/projects", headers=h1h, json={"title": "Private Project"})

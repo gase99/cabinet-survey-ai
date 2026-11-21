@@ -1,5 +1,6 @@
-from app.core.security import hash_password,verify_password
 from passlib.hash import bcrypt
+
+from app.core.security import hash_password, verify_password
 
 
 def test_new_hashes_do_not_truncate_unicode_or_long_password_suffixes():

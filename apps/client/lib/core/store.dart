@@ -45,7 +45,12 @@ class LocalStore {
       .map((r) => jsonDecode(r['body'] as String) as Json)
       .where((item) => item['is_deleted'] == true)
       .toList();
-  Future<void> save(String kind, Json value) async {
+  Future<void> save(String kind, Json rawValue) async {
+    final value = (kind == 'wall' || kind == 'element') &&
+            !rawValue.containsKey('source_observation_id') &&
+            rawValue['candidate_id'] != null
+        ? <String, dynamic>{...rawValue, 'source_observation_id': rawValue['candidate_id']}
+        : rawValue;
     await db.transaction((tx) async {
       final old = await tx.query('records', where: 'owner=? AND id=?', whereArgs: [owner,value['id']]);
       final before = old.isEmpty ? null : jsonDecode(old.single['body'] as String) as Json;
@@ -53,15 +58,15 @@ class LocalStore {
         'customer': ['name','phone','address','notes'],
         'project': ['title','site_notes','status','customer_id'],
         'room': ['label','room_type','project_id'],
-        'wall': ['label','length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm','room_id','source','review_status'],
-        'element': ['label','kind','offset_mm','width_mm','height_mm','sill_mm','depth_mm','wall_id','source','review_status'],
+        'wall': ['label','length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm','room_id','source','confidence','source_observation_id','review_status'],
+        'element': ['label','kind','offset_mm','width_mm','height_mm','sill_mm','depth_mm','wall_id','source','confidence','source_observation_id','review_status'],
       };
       final payload = <String,dynamic>{};
       for (final key in fields[kind]!) {
         if (!value.containsKey(key)) continue;
         if (before == null) {
           if (key != 'review_status') payload[key] = value[key];
-        } else if (value[key] != before[key] && !['source','project_id','room_id','wall_id'].contains(key)) {
+        } else if (value[key] != before[key] && !['source','confidence','project_id','room_id','wall_id'].contains(key)) {
           payload[key] = value[key];
         }
       }
@@ -180,8 +185,8 @@ class LocalStore {
       'customer':['name','phone','address','notes'],
       'project':['title','site_notes','customer_id','status'],
       'room':['label','room_type'],
-      'wall':['label','length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm'],
-      'element':['label','kind','offset_mm','width_mm','height_mm','sill_mm','depth_mm'],
+      'wall':['label','length_mm','height_mm','start_x_mm','start_y_mm','end_x_mm','end_y_mm','source_observation_id'],
+      'element':['label','kind','offset_mm','width_mm','height_mm','sill_mm','depth_mm','source_observation_id'],
     };
     final isDelete = op['operation'] == 'delete' || current['is_deleted'] == true;
     final payload = isDelete

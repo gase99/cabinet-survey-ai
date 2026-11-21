@@ -1,7 +1,9 @@
 """Provider-neutral AI boundary. Implementations must return proposals, never approved facts."""
-from typing import Any, Protocol
 import re
+from typing import Any, Protocol
+
 from app.domain.measurements import normalize_numerals, to_mm
+
 
 class VisionProvider(Protocol):
     async def analyze_sketch(self, image_bytes: bytes, *, language_hint: str = "fa,en") -> dict[str, Any]:
@@ -24,7 +26,8 @@ def parse_measurements_any(text: str) -> dict[str, Any]:
     the most explicit form; spoken observations are kept when they do not
     duplicate a labeled match. No value is ever invented by either path.
     """
-    from app.domain.spoken_measurements import parse_spoken_measurements, normalize as spoken_normalize
+    from app.domain.spoken_measurements import normalize as spoken_normalize
+    from app.domain.spoken_measurements import parse_spoken_measurements
 
     normalized = spoken_normalize(text)
     spoken = parse_spoken_measurements(normalized)
@@ -75,7 +78,7 @@ MEASUREMENT_RE = re.compile(
 
 UNIT_NORMALIZE = {
     "میلی‌متر": "mm", "میلیمتر": "mm", "میلی متر": "mm",
-    "سانتی‌متر": "cm", "سانتیمتر": "cm", "سانتیمتر": "cm", "سانت": "cm",
+    "سانتی‌متر": "cm", "سانتیمتر": "cm", "سانت": "cm",
     "متر": "m",
 }
 
@@ -86,8 +89,8 @@ def parse_text_measurements_deterministic(text: str) -> dict[str, Any]:
     Returns proposal observations with source regions omitted (text).
     """
     normalized = normalize_numerals(text)
-    observations = []
-    ambiguities = []
+    observations: list[dict[str, Any]] = []
+    ambiguities: list[dict[str, Any]] = []
     for m in MEASUREMENT_RE.finditer(normalized):
         label = m.group("label").strip()
         value_raw = m.group("value").strip().replace(",", "")
@@ -98,16 +101,28 @@ def parse_text_measurements_deterministic(text: str) -> dict[str, Any]:
         unit_raw = m.group("unit").strip().lower()
         # normalize Persian unit
         unit_norm = UNIT_NORMALIZE.get(unit_raw, unit_raw)
-        if unit_norm not in ("mm", "cm", "m", "in", "inch", "ft", "foot", "millimeter", "millimetre", "centimeter", "centimetre", "meter", "metre"):
-            # try lower fallback
-            if unit_norm not in ("mm","cm","m"):
-                ambiguities.append({
-                    "type": "unknown_unit",
-                    "raw": m.group(0),
-                    "detail": f"Unrecognized unit '{unit_raw}' for '{label}'",
-                    "confidence": 0.5,
-                })
-                continue
+        if unit_norm not in (
+            "mm",
+            "cm",
+            "m",
+            "in",
+            "inch",
+            "ft",
+            "foot",
+            "millimeter",
+            "millimetre",
+            "centimeter",
+            "centimetre",
+            "meter",
+            "metre",
+        ):
+            ambiguities.append({
+                "type": "unknown_unit",
+                "raw": m.group(0),
+                "detail": f"Unrecognized unit '{unit_raw}' for '{label}'",
+                "confidence": 0.5,
+            })
+            continue
         try:
             value_f = float(value_raw)
         except ValueError:
@@ -161,8 +176,8 @@ def parse_text_measurements_deterministic(text: str) -> dict[str, Any]:
         })
 
     # Always return clarification questions for missing typical fields
-    clarification_questions = []
-    labels_found = {o["label"].lower() for o in observations}
+    clarification_questions: list[str] = []
+    labels_found = {str(o["label"]).lower() for o in observations}
     # Don't invent missing, just ask
     # Example: if we saw walls but no heights
     if observations and not any("height" in l or "ارتفاع" in l for l in labels_found):

@@ -1,4 +1,3 @@
-import os
 
 def test_export_pdf_and_png(client, auth_headers):
     p = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Export Kitchen"})

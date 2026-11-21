@@ -4,7 +4,8 @@ import 'survey.dart';
 ///
 /// Proposals are never measurements: they only become wall/element values
 /// after the user edits and saves them through the normal confirm-first form,
-/// which keeps approval state and revision history intact.
+/// which keeps approval state, revision history, and `source_observation_id`
+/// provenance intact through to sync.
 class VoiceProposal {
   final String label;
   final String? kind;
@@ -12,34 +13,114 @@ class VoiceProposal {
   final String sourceText;
   final String intent;
   final bool conflict;
+  final String? candidateId;
+  final double? confidence;
 
-  const VoiceProposal({required this.label, required this.kind, required this.valueMm,
-    required this.sourceText, required this.intent, required this.conflict});
+  const VoiceProposal({
+    required this.label,
+    required this.kind,
+    required this.valueMm,
+    required this.sourceText,
+    required this.intent,
+    required this.conflict,
+    this.candidateId,
+    this.confidence,
+  });
 
-  factory VoiceProposal.fromJson(Json observation, {required bool conflict}) =>
-    VoiceProposal(label: '${observation['label'] ?? 'measurement'}',
+  factory VoiceProposal.fromJson(Json observation, {required bool conflict}) {
+    final rawId = observation['candidate_id'] ?? observation['id'];
+    return VoiceProposal(
+      label: '${observation['label'] ?? 'measurement'}',
       kind: observation['kind'] as String?,
       valueMm: observation['value_mm'] as int,
       sourceText: '${observation['source_text'] ?? observation['value_raw'] ?? ''}',
       intent: '${observation['intent'] ?? 'statement'}',
-      conflict: conflict);
+      conflict: conflict,
+      candidateId: rawId is String && rawId.isNotEmpty ? rawId : null,
+      confidence: (observation['confidence'] as num?)?.toDouble(),
+    );
+  }
 
   bool get isCorrection => intent == 'correction';
 
-  /// Wall fields this proposal can prefill, or null when it only informs
-  /// (cabinet depths belong to elements and stay display-only in this phase).
-  String? get wallField => switch (kind) {
-    'wall_length' || 'length' => 'length_mm',
-    'wall_height' || 'height' => 'height_mm',
-    _ => null,
-  };
+  /// Wall fields this proposal can prefill, or null when it maps to an element
+  /// or stays display-only.
+  String? get wallField {
+    final tag = (kind ?? label).toLowerCase().trim();
+    return switch (tag) {
+      'wall_length' || 'length' || 'wall length' => 'length_mm',
+      'wall_height' || 'height' || 'wall height' => 'height_mm',
+      _ => null,
+    };
+  }
+
+  /// Element kind this proposal can prefill (window / door), or null.
+  String? get elementKind {
+    final tag = (kind ?? label).toLowerCase().trim();
+    if (tag == 'window' || tag.startsWith('window ')) return 'window';
+    if (tag == 'door' || tag.startsWith('door ')) return 'door';
+    return null;
+  }
+
+  bool get isApplicable => wallField != null || elementKind != null;
 
   /// Confirm-first prefill: the target form still requires the user to review,
-  /// complete and save. Voice-sourced values never skip that form.
+  /// complete and save. Voice-sourced values never skip that form, and carry
+  /// `candidate_id` as `source_observation_id` to sync.
   Json prefill() {
     final field = wallField;
-    return field == null ? <String, dynamic>{} : <String, dynamic>{field: valueMm};
+    if (field != null) {
+      return <String, dynamic>{
+        field: valueMm,
+        'source': 'voice_ai',
+        if (confidence != null) 'confidence': confidence,
+        if (candidateId != null) 'source_observation_id': candidateId,
+      };
+    }
+    final elemKind = elementKind;
+    if (elemKind != null) {
+      return <String, dynamic>{
+        'kind': elemKind,
+        'width_mm': valueMm,
+        'source': 'voice_ai',
+        if (confidence != null) 'confidence': confidence,
+        if (candidateId != null) 'source_observation_id': candidateId,
+      };
+    }
+    return <String, dynamic>{};
   }
+}
+
+/// Build a confirm-first form prefill from an AI sketch observation while
+/// carrying `candidate_id` -> `source_observation_id` through to sync.
+Json sketchCandidatePrefill(Json observation, {required bool asElement}) {
+  final rawId = observation['candidate_id'] ?? observation['id'];
+  final candidateId = rawId is String && rawId.isNotEmpty ? rawId : null;
+  final confidence = (observation['confidence'] as num?)?.toDouble();
+  final value = observation['value_mm'];
+  final label = observation['label'];
+  final kind = '${observation['kind'] ?? ''}'.toLowerCase();
+  if (asElement) {
+    final elemKind = kind == 'door' ? 'door' : 'window';
+    return <String, dynamic>{
+      '_target': 'element',
+      if (label is String && label.isNotEmpty) 'label': label,
+      'kind': elemKind,
+      if (value is int && value > 0) 'width_mm': value,
+      'source': 'sketch_ai',
+      if (confidence != null) 'confidence': confidence,
+      if (candidateId != null) 'source_observation_id': candidateId,
+    };
+  }
+  return <String, dynamic>{
+    '_target': 'wall',
+    if (label is String && label.isNotEmpty) 'label': label,
+    if (value is int && value > 0)
+      (kind.contains('height') ? 'height_mm' : 'length_mm'): value,
+    'source': 'sketch_ai',
+    if (confidence != null) 'confidence': confidence,
+    if (candidateId != null) 'source_observation_id': candidateId,
+  };
 }
 
 /// Deterministic client-side mapping of the backend extraction payload.
@@ -58,9 +139,11 @@ List<VoiceProposal> proposalsFromExtraction(Json extraction) {
   return [
     for (final observation in observations)
       if (observation['value_mm'] is int)
-        VoiceProposal.fromJson(observation,
+        VoiceProposal.fromJson(
+          observation,
           conflict: observation['kind'] != null &&
-            (valuesByKind['${observation['kind']}']?.length ?? 0) > 1),
+              (valuesByKind['${observation['kind']}']?.length ?? 0) > 1,
+        ),
   ];
 }
 

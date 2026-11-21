@@ -1,0 +1,7 @@
+-c requirements.lock
+ruff>=0.17,<1
+mypy>=1.14,<3
+types-python-jose>=3.3,<4
+types-passlib>=1.7,<2
+types-reportlab>=4.2,<5
+PyYAML>=6.0,<7

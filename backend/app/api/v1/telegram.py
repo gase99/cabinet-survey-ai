@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+import secrets
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
-import secrets, hashlib, os, json
+
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.config import settings
-from app.models.db_models import User, PairingCode, TelegramDelivery, ExportJob
+from app.models.db_models import ExportJob, PairingCode, TelegramDelivery, User
 from app.services.audit import entity_snapshot, log_audit
-from app.services.idempotency import check_idempotency, store_idempotency_result
+from app.services.idempotency import (
+    claim_idempotency,
+    complete_idempotency,
+    idempotency_guard,
+    release_uncommitted_idempotency,
+)
 from app.services.tombstones import soft_delete_telegram_unlink
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
@@ -32,7 +39,7 @@ def create_pairing_code(db: Session = Depends(get_db), user: User = Depends(get_
     code = gen_code()
     while db.query(PairingCode).filter(PairingCode.code == code).first():
         code = gen_code()
-    pc = PairingCode(user_id=user.id, code=code, expires_at=datetime.now(timezone.utc)+timedelta(minutes=10))
+    pc = PairingCode(user_id=user.id, code=code, expires_at=datetime.now(UTC)+timedelta(minutes=10))
     db.add(pc)
     db.commit()
     log_audit(db, user_id=user.id, project_id=None, action="telegram.pairing_code_created", entity_type="pairing_code", entity_id=pc.id)
@@ -59,8 +66,8 @@ def verify_pairing(payload: dict, db: Session = Depends(get_db), x_webhook_secre
     # SQLite returns naive timestamps; canonical storage is UTC.
     expiry = pc.expires_at
     if expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=timezone.utc)
-    if expiry <= datetime.now(timezone.utc):
+        expiry = expiry.replace(tzinfo=UTC)
+    if expiry <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Pairing code expired")
     user = db.get(User, pc.user_id)
     if not user:
@@ -102,62 +109,71 @@ def send_via_telegram(
     user: User = Depends(get_current_user),
 ):
     """
-    Trigger delivery of an export job to linked Telegram account.
-    This endpoint queues delivery; worker or direct Bot API call handles sending.
-    The independent worker owns the bot token; this API only queues delivery.
+    Queue delivery of an approved export job to the user's linked Telegram chat.
+    The independent single-replica worker (`services/telegram-bot`) owns the bot
+    token and sends documents asynchronously; this API only queues delivery.
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="Invalid JSON payload")
-    replay, req_hash, expired_rec = check_idempotency(
-        db,
-        owner_id=user.id,
-        scope="telegram.send",
-        key=idempotency_key,
-        canonical_payload=payload,
-    )
-    if replay is not None:
-        return replay
+    with idempotency_guard(owner_id=user.id, scope="telegram.send", key=idempotency_key):
+        replay, claimed_record = claim_idempotency(
+            db,
+            owner_id=user.id,
+            scope="telegram.send",
+            key=idempotency_key,
+            canonical_payload=payload,
+        )
+        if replay is not None:
+            return replay
 
-    if not user.telegram_chat_id:
-        raise HTTPException(status_code=400, detail="Telegram not linked. Create pairing code first.")
-    export_id = payload.get("export_job_id")
-    if not export_id:
-        raise HTTPException(status_code=400, detail="export_job_id required")
-    job = db.get(ExportJob, export_id)
-    if not job or job.owner_id != user.id:
-        raise HTTPException(status_code=404, detail="Export not found")
-    if job.status != "done":
-        raise HTTPException(status_code=400, detail="Export not ready")
-    # Create delivery record
-    delivery = TelegramDelivery(owner_id=user.id, project_id=job.project_id, export_job_id=job.id, chat_id=user.telegram_chat_id, status="pending")
-    db.add(delivery)
-    db.flush()
+        try:
+            if not user.telegram_chat_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Telegram not linked. Create pairing code first.",
+                )
+            export_id = payload.get("export_job_id")
+            if not export_id:
+                raise HTTPException(status_code=400, detail="export_job_id required")
+            job = db.get(ExportJob, export_id)
+            if not job or job.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Export not found")
+            if job.status != "done":
+                raise HTTPException(status_code=400, detail="Export not ready")
+            delivery = TelegramDelivery(
+                owner_id=user.id,
+                project_id=job.project_id,
+                export_job_id=job.id,
+                chat_id=user.telegram_chat_id,
+                status="pending",
+            )
+            db.add(delivery)
+            db.flush()
 
-    response_body = {"status": "queued", "delivery_id": delivery.id}
-    store_idempotency_result(
-        db,
-        owner_id=user.id,
-        scope="telegram.send",
-        key=idempotency_key,
-        request_hash=req_hash,
-        status_code=200,
-        response_body=response_body,
-        existing_expired=expired_rec,
-    )
-    log_audit(
-        db,
-        user_id=user.id,
-        project_id=job.project_id,
-        action="telegram.deliver_queued",
-        entity_type="telegram_delivery",
-        entity_id=delivery.id,
-        old_values=None,
-        new_values=entity_snapshot("telegram_delivery", delivery),
-        commit=False,
-    )
-    db.commit()
-    db.refresh(delivery)
-    return response_body
+            response_body = {"status": "queued", "delivery_id": delivery.id}
+            complete_idempotency(
+                db,
+                record=claimed_record,
+                status_code=200,
+                response_body=response_body,
+            )
+            log_audit(
+                db,
+                user_id=user.id,
+                project_id=job.project_id,
+                action="telegram.deliver_queued",
+                entity_type="telegram_delivery",
+                entity_id=delivery.id,
+                old_values=None,
+                new_values=entity_snapshot("telegram_delivery", delivery),
+                commit=False,
+            )
+            db.commit()
+            db.refresh(delivery)
+            return response_body
+        except BaseException:
+            release_uncommitted_idempotency(db, claimed_record)
+            raise
 
 @router.get("/deliveries")
 def list_deliveries(
@@ -186,12 +202,12 @@ def list_deliveries(
         for d in deliveries
     ]
 
-# Webhook endpoint for Telegram updates (mirrors worker, kept for single-service deploy)
+# Inactive legacy route: Telegram Bot API webhooks must target services/telegram-bot (/telegram/webhook)
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db), x_telegram_bot_api_secret_token: str | None = Header(default=None)):
     """
-    Handle Telegram webhook updates if worker is not separate.
-    Secured via Telegram webhook secret header.
+    Intentionally disabled (`501`, blocked with `404` at the gateway).
+    Telegram webhook ingress is handled exclusively by `services/telegram-bot`.
     """
     require_worker_secret(x_telegram_bot_api_secret_token)
     raise HTTPException(status_code=501, detail="Configure Telegram webhook on the independent worker service")

@@ -1,9 +1,33 @@
 """Optimistic concurrency enforcement (version / base_version / If-Match) for REST PUT endpoints."""
 from typing import TypeVar
+
 from fastapi import HTTPException, Response
 from sqlalchemy.orm import Session
 
-T = TypeVar("T")
+from app.models.db_models import (
+    AIConfig,
+    Customer,
+    Element,
+    PairingCode,
+    Project,
+    Room,
+    TelegramDelivery,
+    User,
+    Wall,
+)
+
+T = TypeVar(
+    "T",
+    AIConfig,
+    Customer,
+    Element,
+    PairingCode,
+    Project,
+    Room,
+    TelegramDelivery,
+    User,
+    Wall,
+)
 
 
 def parse_if_match(if_match: str | None) -> int | None:

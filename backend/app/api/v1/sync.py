@@ -1,10 +1,13 @@
 """Versioned local outbox writes. Never trust parent IDs or arbitrary ORM fields."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import (
@@ -26,6 +29,7 @@ from app.services.audit import entity_snapshot, log_audit
 from app.services.provenance import (
     bind_observation_to_measurement,
     sync_linked_observation_approval,
+    unlink_replaced_observation,
 )
 from app.services.revisions import (
     append_revision,
@@ -45,30 +49,90 @@ from app.services.tombstones import (
 )
 
 router = APIRouter(prefix="/sync", tags=["sync"])
-MODELS = {
+SyncEntity = Customer | Project | Room | Wall | Element
+MODELS: dict[str, type[SyncEntity]] = {
     "customer": Customer,
     "project": Project,
     "room": Room,
     "wall": Wall,
     "element": Element,
 }
-SCHEMAS = {
+SCHEMAS: dict[str, type[BaseModel]] = {
     "customer": CustomerCreate,
     "project": ProjectCreate,
     "room": RoomCreate,
     "wall": WallCreate,
     "element": ElementCreate,
 }
-PARENTS = {
+PARENTS: dict[str, tuple[str, type[SyncEntity]]] = {
     "room": ("project_id", Project),
     "wall": ("room_id", Room),
     "element": ("wall_id", Wall),
 }
 
 
-def owned(entity, db, user):
+def _get_sync_entity(
+    db: Session, model: type[SyncEntity], entity_id: str
+) -> SyncEntity | None:
+    if model is Customer:
+        return db.get(Customer, entity_id)
+    if model is Project:
+        return db.get(Project, entity_id)
+    if model is Room:
+        return db.get(Room, entity_id)
+    if model is Wall:
+        return db.get(Wall, entity_id)
+    return db.get(Element, entity_id)
+
+
+def _lock_sync_entity(
+    db: Session, model: type[SyncEntity], entity_id: str
+) -> SyncEntity | None:
+    if model is Customer:
+        return (
+            db.query(Customer)
+            .filter(Customer.id == entity_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+    if model is Project:
+        return (
+            db.query(Project)
+            .filter(Project.id == entity_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+    if model is Room:
+        return (
+            db.query(Room)
+            .filter(Room.id == entity_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+    if model is Wall:
+        return (
+            db.query(Wall)
+            .filter(Wall.id == entity_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+    return (
+        db.query(Element)
+        .filter(Element.id == entity_id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+
+
+def owned(entity: SyncEntity, db: Session, user: User) -> bool:
     if isinstance(entity, (Customer, Project)):
         return entity.owner_id == user.id
+    parent: SyncEntity | None
     if isinstance(entity, Room):
         parent = db.get(Project, entity.project_id)
     elif isinstance(entity, Wall):
@@ -80,20 +144,23 @@ def owned(entity, db, user):
     return parent is not None and owned(parent, db, user)
 
 
-def snapshot(entity):
-    return jsonable_encoder(
+def snapshot(entity: Any) -> dict[str, Any]:
+    encoded: dict[str, Any] = jsonable_encoder(
         {c.name: getattr(entity, c.name) for c in entity.__table__.columns}
     )
+    return encoded
 
 
-def _project_id_for_entity(db: Session, entity_type: str, entity) -> str | None:
+def _project_id_for_entity(
+    db: Session, entity_type: str, entity: SyncEntity
+) -> str | None:
     if entity_type == "customer":
         return None
-    if entity_type == "project":
+    if isinstance(entity, Project):
         return entity.id
-    if entity_type == "room":
+    if isinstance(entity, Room):
         return entity.project_id
-    if entity_type in {"wall", "element"}:
+    if isinstance(entity, (Wall, Element)):
         return resolve_project_id(db, entity_type, entity)
     return None
 
@@ -153,7 +220,7 @@ def sync_push(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    results = []
+    results: list[dict[str, Any]] = []
     for op in payload.operations:
         try:
             # Atomic receipt + mutation. A lost response can safely retry the same ID.
@@ -172,10 +239,11 @@ def sync_push(
                         or receipt.base_version != op.base_version
                     ):
                         raise ValueError("Operation ID already used")
-                    result = {"id": op.id, "status": receipt.status}
+                    result: dict[str, Any] = {"id": op.id, "status": receipt.status}
+                    receipt_model = MODELS.get(op.entity_type)
                     existing = (
-                        db.get(MODELS.get(op.entity_type), op.entity_id)
-                        if op.entity_type in MODELS
+                        _get_sync_entity(db, receipt_model, op.entity_id)
+                        if receipt_model is not None
                         else None
                     )
                     if existing and owned(existing, db, user):
@@ -193,18 +261,15 @@ def sync_push(
                 if op.operation == "delete":
                     if op.payload:
                         raise ValueError("Delete operation payload must be empty")
-                    entity = db.get(model, op.entity_id)
-                    if entity is None or not owned(entity, db, user):
+                    found = _get_sync_entity(db, model, op.entity_id)
+                    if found is None or not owned(found, db, user):
                         raise ValueError("Entity not found or forbidden")
                     if op.base_version is None:
                         raise ValueError("base_version is required for deletes")
-                    entity = (
-                        db.query(model)
-                        .filter(model.id == op.entity_id)
-                        .with_for_update()
-                        .populate_existing()
-                        .one()
-                    )
+                    locked_del = _lock_sync_entity(db, model, op.entity_id)
+                    if locked_del is None:
+                        raise ValueError("Entity not found or forbidden")
+                    entity = locked_del
                     proj_id = _project_id_for_entity(db, op.entity_type, entity)
                     if op.base_version != entity.version:
                         db.add(
@@ -245,21 +310,21 @@ def sync_push(
                     if entity.is_deleted:
                         raise ValueError("Entity is already deleted")
                     before_snap = entity_snapshot(op.entity_type, entity)
-                    resolved_ids = _mark_entity_conflicts_resolved(
+                    del_resolved_ids = _mark_entity_conflicts_resolved(
                         db,
                         owner_id=user.id,
                         entity_type=op.entity_type,
                         entity_id=op.entity_id,
                     )
-                    if op.entity_type == "customer":
+                    if isinstance(entity, Customer):
                         soft_delete_customer(
                             db, customer=entity, user_id=user.id, op_id=op.id
                         )
-                    elif op.entity_type == "project":
+                    elif isinstance(entity, Project):
                         soft_delete_project(
                             db, project=entity, user_id=user.id, op_id=op.id
                         )
-                    elif op.entity_type == "room":
+                    elif isinstance(entity, Room):
                         soft_delete_room(
                             db,
                             room=entity,
@@ -268,7 +333,9 @@ def sync_push(
                             reason="sync_delete",
                             op_id=op.id,
                         )
-                    elif op.entity_type == "wall":
+                    elif isinstance(entity, Wall):
+                        if proj_id is None:
+                            raise ValueError("Project not found for wall")
                         soft_delete_wall(
                             db,
                             wall=entity,
@@ -277,7 +344,9 @@ def sync_push(
                             reason="sync_delete",
                             op_id=op.id,
                         )
-                    elif op.entity_type == "element":
+                    elif isinstance(entity, Element):
+                        if proj_id is None:
+                            raise ValueError("Project not found for element")
                         soft_delete_element(
                             db,
                             elem=entity,
@@ -286,7 +355,7 @@ def sync_push(
                             reason="sync_delete",
                             op_id=op.id,
                         )
-                    if resolved_ids:
+                    if del_resolved_ids:
                         log_audit(
                             db,
                             user_id=user.id,
@@ -298,7 +367,7 @@ def sync_push(
                             new_values={
                                 **entity_snapshot(op.entity_type, entity),
                                 "resolution": "keep_local",
-                                "resolved_conflicts": resolved_ids,
+                                "resolved_conflicts": del_resolved_ids,
                             },
                             commit=False,
                         )
@@ -314,7 +383,8 @@ def sync_push(
                     continue
 
                 schema = SCHEMAS[op.entity_type]
-                parent_key = PARENTS.get(op.entity_type, (None, None))[0]
+                parent_spec = PARENTS.get(op.entity_type)
+                parent_key = parent_spec[0] if parent_spec is not None else None
                 allowed = set(schema.model_fields)
                 if op.operation == "create" and parent_key:
                     allowed.add(parent_key)
@@ -325,20 +395,20 @@ def sync_push(
                         allowed.add("review_status")
                 if set(op.payload) - allowed:
                     raise ValueError("Protected or unknown fields in payload")
-                entity = db.get(model, op.entity_id)
+                preexisting = _get_sync_entity(db, model, op.entity_id)
                 revision_reason = None
                 audit_action = None
                 audit_old = None
                 resolved_ids: list[str] = []
                 if op.operation == "create":
-                    if entity:
+                    if preexisting is not None:
                         # An existing ID without a matching receipt is NOT an idempotent create.
                         raise ValueError("Entity ID already exists")
                     values = schema.model_validate(op.payload).model_dump(mode="json")
-                    if parent_key:
+                    if parent_spec is not None and parent_key is not None:
                         parent_id = op.payload.get(parent_key)
                         parent = (
-                            db.get(PARENTS[op.entity_type][1], parent_id)
+                            _get_sync_entity(db, parent_spec[1], str(parent_id))
                             if parent_id
                             else None
                         )
@@ -362,7 +432,7 @@ def sync_push(
                     db.add(entity)
                     entity.version = 1
                     db.flush()
-                    if op.entity_type in {"wall", "element"} and values.get("source_observation_id"):
+                    if isinstance(entity, (Wall, Element)) and values.get("source_observation_id"):
                         proj_id = resolve_project_id(db, op.entity_type, entity)
                         bind_observation_to_measurement(
                             db,
@@ -374,18 +444,15 @@ def sync_push(
                         )
                     audit_action = "sync.create"
                 else:
-                    if entity is None or not owned(entity, db, user):
+                    if preexisting is None or not owned(preexisting, db, user):
                         raise ValueError("Entity not found or forbidden")
                     if op.base_version is None:
                         raise ValueError("base_version is required for updates")
                     # Lock the row before checking its version (PostgreSQL).
-                    entity = (
-                        db.query(model)
-                        .filter(model.id == op.entity_id)
-                        .with_for_update()
-                        .populate_existing()
-                        .one()
-                    )
+                    locked_upd = _lock_sync_entity(db, model, op.entity_id)
+                    if locked_upd is None:
+                        raise ValueError("Entity not found or forbidden")
+                    entity = locked_upd
                     proj_id = _project_id_for_entity(db, op.entity_type, entity)
                     if op.base_version != entity.version or entity.is_deleted:
                         db.add(
@@ -431,7 +498,9 @@ def sync_push(
                     # Validate the complete resulting model, not just changed fields.
                     merged = {**snapshot(entity), **op.payload}
                     validated = schema.model_validate(merged).model_dump(mode="json")
-                    if op.entity_type in {"wall", "element"}:
+                    if isinstance(entity, (Wall, Element)):
+                        if proj_id is None:
+                            raise ValueError("Project not found for measurement")
                         if "review_status" in op.payload and op.payload[
                             "review_status"
                         ] not in {"approved", "needs_review", "incomplete"}:
@@ -466,14 +535,21 @@ def sync_push(
                                 entity=entity,
                                 fallback_user_id=user.id,
                             )
-                            if op.payload.get("source_observation_id"):
-                                bind_observation_to_measurement(
+                            previous_obs_id = entity.source_observation_id
+                            if "source_observation_id" in op.payload:
+                                if op.payload["source_observation_id"]:
+                                    bind_observation_to_measurement(
+                                        db,
+                                        observation_id=op.payload["source_observation_id"],
+                                        user_id=user.id,
+                                        project_id=proj_id,
+                                        entity_type=op.entity_type,
+                                        entity_id=entity.id,
+                                    )
+                                unlink_replaced_observation(
                                     db,
-                                    observation_id=op.payload["source_observation_id"],
-                                    user_id=user.id,
-                                    project_id=proj_id,
-                                    entity_type=op.entity_type,
-                                    entity_id=entity.id,
+                                    previous_observation_id=previous_obs_id,
+                                    new_observation_id=op.payload["source_observation_id"],
                                 )
                             for key in op.payload:
                                 if key != "review_status":
@@ -496,7 +572,7 @@ def sync_push(
                             setattr(entity, key, validated.get(key, op.payload[key]))
                         entity.version += 1
                         audit_action = "sync.update"
-                if op.entity_type == "project" and entity.customer_id:
+                if isinstance(entity, Project) and entity.customer_id:
                     customer = db.get(Customer, entity.customer_id)
                     if (
                         customer is None
@@ -504,7 +580,7 @@ def sync_push(
                         or customer.is_deleted
                     ):
                         raise ValueError("Customer not found or forbidden")
-                if op.entity_type == "element":
+                if isinstance(entity, Element):
                     with db.no_autoflush:
                         check_element(
                             snapshot(entity),
@@ -512,7 +588,7 @@ def sync_push(
                             db,
                             exclude=entity.id,
                         )
-                if op.entity_type == "wall":
+                if isinstance(entity, Wall):
                     with db.no_autoflush:
                         for element in (
                             db.query(Element)
@@ -531,7 +607,9 @@ def sync_push(
                                     "Wall resize would place an element out of bounds"
                                 )
                 proj_id = _project_id_for_entity(db, op.entity_type, entity)
-                if revision_reason is not None:
+                if revision_reason is not None and isinstance(entity, (Wall, Element)):
+                    if proj_id is None:
+                        raise ValueError("Project not found for measurement")
                     db.flush()
                     append_revision(
                         db,
@@ -615,7 +693,7 @@ def sync_pull(
     q = db.query(SyncOperation).filter(SyncOperation.owner_id == user.id)
     if since:
         try:
-            parsed_since = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            parsed_since = datetime.fromisoformat(since)
             q = q.filter(SyncOperation.created_at > parsed_since)
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid timestamp")
@@ -631,7 +709,7 @@ def sync_pull(
     return {
         "operations": [snapshot(o) for o in operations],
         "tombstones": tombstones,
-        "server_time": datetime.now(timezone.utc).isoformat(),
+        "server_time": datetime.now(UTC).isoformat(),
     }
 
 
@@ -664,13 +742,7 @@ def resolve_conflict(
     model = MODELS.get(conflict_op.entity_type)
     if model is None:
         raise HTTPException(status_code=400, detail="Unsupported entity type")
-    entity = (
-        db.query(model)
-        .filter(model.id == conflict_op.entity_id)
-        .with_for_update()
-        .populate_existing()
-        .first()
-    )
+    entity = _lock_sync_entity(db, model, conflict_op.entity_id)
     if entity is None or not owned(entity, db, user):
         raise HTTPException(status_code=404, detail="Entity not found")
 
@@ -745,7 +817,9 @@ def resolve_conflict(
     except ValidationError as err:
         raise HTTPException(status_code=422, detail=str(err))
 
-    if conflict_op.entity_type in {"wall", "element"}:
+    if isinstance(entity, (Wall, Element)):
+        if proj_id is None:
+            raise HTTPException(status_code=404, detail="Project not found")
         ensure_baseline_revision(
             db,
             project_id=proj_id,
@@ -765,7 +839,7 @@ def resolve_conflict(
         sync_linked_observation_approval(
             db, observation_id=entity.source_observation_id, approved=False
         )
-        if conflict_op.entity_type == "element":
+        if isinstance(entity, Element):
             try:
                 check_element(snapshot(entity), db.get(Wall, entity.wall_id), db, exclude=entity.id)
             except ValueError as err:

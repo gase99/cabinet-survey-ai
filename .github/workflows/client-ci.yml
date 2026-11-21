@@ -23,11 +23,21 @@ jobs:
         with: {python-version: '3.11'}
       - name: Python regression and Android-only configuration gates
         run: |
-          pip install -r backend/requirements.txt
+          pip install -r backend/requirements.lock -r backend/requirements-dev.lock
           python -m pytest tests -q
           cd backend && python -m pytest -q
       - name: Resolve Android dependencies (platform sources are committed)
         run: flutter pub get
+        working-directory: apps/client
+      - name: Emit pubspec.lock snapshot for lockfile bootstrap
+        run: |
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          b64 = base64.b64encode(Path('pubspec.lock').read_bytes()).decode('ascii')
+          for idx in range(0, len(b64), 3000):
+              print(f"::notice title=PUBSPEC_LOCK_{idx//3000}::{b64[idx:idx+3000]}")
+          PY
         working-directory: apps/client
       - run: flutter analyze --no-fatal-infos
         working-directory: apps/client
@@ -75,16 +85,37 @@ jobs:
       - name: Build installable debug APK
         run: flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1/
         working-directory: apps/client
-      - name: "Compile release AAB with disposable CI signing: NOT for publication"
+      - name: Build release AAB (owner CI secrets when configured; disposable CI keystore fallback)
+        env:
+          CI_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          CI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CI_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CI_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CI_RELEASE_API_BASE_URL: ${{ secrets.RELEASE_API_BASE_URL }}
         run: |
-          set -o pipefail
-          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-only.jks" -storepass ci-only-password \
-            -keypass ci-only-password -alias ci-only -keyalg RSA -keysize 2048 -validity 2 \
-            -dname "CN=Disposable CI Build, O=Cabinet Survey, C=US"
-          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/ci-only.jks"
-          export ANDROID_KEYSTORE_PASSWORD=ci-only-password ANDROID_KEY_PASSWORD=ci-only-password ANDROID_KEY_ALIAS=ci-only
-          flutter build appbundle --release --dart-define=API_BASE_URL=https://api.example.invalid/api/v1/ 2>&1 | tee "$RUNNER_TEMP/android-release.log"
-          rm -f "$RUNNER_TEMP/ci-only.jks"
+          set -euo pipefail
+          KEYSTORE_FILE="$RUNNER_TEMP/release-signing.jks"
+          trap 'rm -f "$KEYSTORE_FILE"' EXIT
+          if [[ -n "${CI_ANDROID_KEYSTORE_BASE64:-}" && -n "${CI_ANDROID_KEYSTORE_PASSWORD:-}" && -n "${CI_ANDROID_KEY_ALIAS:-}" && -n "${CI_ANDROID_KEY_PASSWORD:-}" ]]; then
+            KEYSTORE_FILE="$KEYSTORE_FILE" python3 -c "import base64, os, pathlib; pathlib.Path(os.environ['KEYSTORE_FILE']).write_bytes(base64.b64decode(os.environ['CI_ANDROID_KEYSTORE_BASE64']))"
+            export ANDROID_KEYSTORE_PATH="$KEYSTORE_FILE"
+            export ANDROID_KEYSTORE_PASSWORD="$CI_ANDROID_KEYSTORE_PASSWORD"
+            export ANDROID_KEY_ALIAS="$CI_ANDROID_KEY_ALIAS"
+            export ANDROID_KEY_PASSWORD="$CI_ANDROID_KEY_PASSWORD"
+            SIGNING_MODE="owner-secrets"
+          else
+            keytool -genkeypair -keystore "$KEYSTORE_FILE" -storepass ci-only-password \
+              -keypass ci-only-password -alias ci-only -keyalg RSA -keysize 2048 -validity 2 \
+              -dname "CN=Disposable CI Build, O=Cabinet Survey, C=US"
+            export ANDROID_KEYSTORE_PATH="$KEYSTORE_FILE"
+            export ANDROID_KEYSTORE_PASSWORD=ci-only-password
+            export ANDROID_KEY_ALIAS=ci-only
+            export ANDROID_KEY_PASSWORD=ci-only-password
+            SIGNING_MODE="disposable-ci"
+          fi
+          echo "SIGNING_MODE=$SIGNING_MODE" > "$RUNNER_TEMP/signing-mode.txt"
+          API_URL="${CI_RELEASE_API_BASE_URL:-https://api.example.invalid/api/v1/}"
+          flutter build appbundle --release --dart-define="API_BASE_URL=$API_URL" 2>&1 | tee "$RUNNER_TEMP/android-release.log"
         working-directory: apps/client
       - name: Preserve release diagnostics through GitHub API
         if: failure()
@@ -100,16 +131,17 @@ jobs:
               chunk=detail[offset:offset+3000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
               print('::error::'+chunk)
           PY
-      - name: Record artifact limitations
+      - name: Record artifact provenance and signing mode
         run: |
           mkdir -p /tmp/android-artifacts
           git rev-parse HEAD > /tmp/android-artifacts/commit.txt
-          printf '%s\n' 'CI compilation only; disposable signing; .invalid API host.' \
-            'Not an owner-signed or connected production release.' \
-            'Rebuild with scripts/build-android.sh release and private owner signing.' > /tmp/android-artifacts/README.txt
+          cp "$RUNNER_TEMP/signing-mode.txt" /tmp/android-artifacts/signing-mode.txt
+          printf '%s\n' 'Debug APK + Release AAB built in CI.' \
+            'Check signing-mode.txt: disposable-ci builds use .invalid API host unless RELEASE_API_BASE_URL and ANDROID_KEYSTORE_* secrets are configured.' \
+            'For local owner release builds, use scripts/build-android.sh release with private signing.' > /tmp/android-artifacts/README.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: android-ci-builds-not-for-publication
+          name: android-ci-builds
           path: |
             /tmp/android-artifacts/
             apps/client/build/app/outputs/flutter-apk/app-debug.apk

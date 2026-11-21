@@ -1,8 +1,9 @@
 from typing import Literal
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
+
 from app.ai.provider import AIUnavailableError
 from app.core.config import settings
 from app.core.database import get_db
@@ -26,7 +27,7 @@ class UserRoleUpdate(BaseModel):
 def admin_list_users(
     db: Session = Depends(get_db), admin: User = Depends(require_admin)
 ):
-    users = db.query(User).order_by(desc(User.created_at)).limit(100).all()
+    users = db.query(User).order_by(User.created_at.desc()).limit(100).all()
     return [
         {
             "id": u.id,
@@ -167,7 +168,7 @@ def ai_usage(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    logs = db.query(AIUsageLog).order_by(desc(AIUsageLog.created_at)).limit(limit).all()
+    logs = db.query(AIUsageLog).order_by(AIUsageLog.created_at.desc()).limit(limit).all()
     return [
         {
             "id": log_row.id,
@@ -207,7 +208,7 @@ def audit(
     if actor_id:
         q = q.filter(AuditEvent.user_id == actor_id)
     events = (
-        q.order_by(desc(AuditEvent.created_at), desc(AuditEvent.id))
+        q.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
         .offset(max(0, offset))
         .limit(min(max(1, limit), 500))
         .all()

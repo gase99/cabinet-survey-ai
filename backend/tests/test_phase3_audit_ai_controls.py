@@ -1,12 +1,13 @@
 """Pre-Phase-3 Gap A (zero hard deletes across all DELETE routes) and Phase 3 Audit & AI controls."""
-from datetime import timedelta
 import io
 import uuid
-from PIL import Image
+from datetime import timedelta
+
 import pytest
-from fastapi.routing import APIRoute
+from PIL import Image
 from sqlalchemy import event, text
 from sqlalchemy.exc import DatabaseError
+
 from app.ai import speech
 from app.core.config import settings
 from app.main import app
@@ -16,7 +17,6 @@ from app.models.db_models import (
     Element,
     ExportJob,
     IdempotencyRecord,
-    Observation,
     PairingCode,
     Project,
     Room,
@@ -256,7 +256,7 @@ def test_audit_log_records_all_required_actions_and_enforces_admin_only_get(
     assert client.get("/api/v1/admin/audit", headers=user_headers).status_code == 403
 
     # 1. Approve + Export
-    pid, rid, wall_ids, eid = _create_approved_closed_room(client, user_headers)
+    pid, _rid, wall_ids, eid = _create_approved_closed_room(client, user_headers)
     wid = wall_ids[0]
     exp = client.post(
         f"/api/v1/exports/{pid}",
@@ -383,7 +383,7 @@ def test_audit_log_records_all_required_actions_and_enforces_admin_only_get(
     assert edit_after["new_values"]["length_mm"] == 4100
     assert edit_after["new_values"]["approved_by"] is None
 
-    approve_ev = [e for e in by_action["wall.approve"] if e["entity_id"] == wid][0]
+    approve_ev = next(e for e in by_action["wall.approve"] if e["entity_id"] == wid)
     assert approve_ev["old_values"]["review_status"] == "needs_review"
     assert approve_ev["new_values"]["review_status"] == "approved"
     assert approve_ev["new_values"]["approved_by"] == user_id
@@ -393,11 +393,15 @@ def test_audit_log_records_all_required_actions_and_enforces_admin_only_get(
     assert conflict_resolved_ev["new_values"]["name"] == "Resolved Offline Winner"
     assert conflict_resolved_ev["new_values"]["resolution"] == "keep_local"
 
-    soft_del_ev = [e for e in by_action["element.soft_delete"] if e["entity_id"] == eid][0]
+    soft_del_ev = next(
+        e for e in by_action["element.soft_delete"] if e["entity_id"] == eid
+    )
     assert soft_del_ev["old_values"]["is_deleted"] is False
     assert soft_del_ev["new_values"]["is_deleted"] is True
 
-    export_ev = [e for e in by_action["export.create"] if e["entity_id"] == export_id][0]
+    export_ev = next(
+        e for e in by_action["export.create"] if e["entity_id"] == export_id
+    )
     assert export_ev["old_values"] is None
     assert export_ev["new_values"]["format"] == "pdf"
     assert export_ev["new_values"]["status"] == "done"
@@ -420,34 +424,30 @@ def test_audit_log_blocks_updates_and_deletes_at_orm_and_sql_trigger_levels(
     original_action = ev.action
 
     # 1. ORM update is blocked
-    with pytest.raises(ValueError, match="append-only"):
-        with db_session.begin_nested():
-            ev.action = "tampered.action"
-            db_session.flush()
+    with pytest.raises(ValueError, match="append-only"), db_session.begin_nested():
+        ev.action = "tampered.action"
+        db_session.flush()
     db_session.expire(ev)
 
     # 2. ORM delete is blocked
-    with pytest.raises(ValueError, match="append-only"):
-        with db_session.begin_nested():
-            db_session.delete(ev)
-            db_session.flush()
+    with pytest.raises(ValueError, match="append-only"), db_session.begin_nested():
+        db_session.delete(ev)
+        db_session.flush()
     db_session.expire_all()
 
     # 3. Direct SQL UPDATE bypassing ORM is blocked by DB trigger
-    with pytest.raises(DatabaseError, match="append-only"):
-        with db_session.begin_nested():
-            db_session.execute(
-                text("UPDATE audit_events SET action = 'tampered' WHERE id = :id"),
-                {"id": audit_id},
-            )
+    with pytest.raises(DatabaseError, match="append-only"), db_session.begin_nested():
+        db_session.execute(
+            text("UPDATE audit_events SET action = 'tampered' WHERE id = :id"),
+            {"id": audit_id},
+        )
 
     # 4. Direct SQL DELETE bypassing ORM is blocked by DB trigger
-    with pytest.raises(DatabaseError, match="append-only"):
-        with db_session.begin_nested():
-            db_session.execute(
-                text("DELETE FROM audit_events WHERE id = :id"),
-                {"id": audit_id},
-            )
+    with pytest.raises(DatabaseError, match="append-only"), db_session.begin_nested():
+        db_session.execute(
+            text("DELETE FROM audit_events WHERE id = :id"),
+            {"id": audit_id},
+        )
 
     db_session.expire_all()
     persisted = db_session.get(AuditEvent, audit_id)
@@ -874,3 +874,436 @@ def test_ai_provenance_persisted_and_cannot_become_approved_without_user_post_ap
         ]
         == "needs_review"
     )
+
+
+def test_concurrent_idempotency_race_produces_single_export_and_delivery(
+    tmp_path, monkeypatch
+):
+    import concurrent.futures
+    import threading
+
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.database import Base, get_db
+    from app.main import app
+
+    db_file = tmp_path / "concurrent_idempotency.sqlite"
+    race_engine = create_engine(
+        f"sqlite:///{db_file}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    Base.metadata.create_all(bind=race_engine)
+    SessionLocal = sessionmaker(bind=race_engine, autocommit=False, autoflush=False)
+
+    def override_get_db():
+        s = SessionLocal()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    monkeypatch.setattr(settings, "telegram_worker_secret", "race-worker-secret-0123456789")
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as setup_client:
+            setup_client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": "race@example.com",
+                    "password": "RacePassword123!",
+                    "display_name": "Race Tester",
+                },
+            )
+            token = setup_client.post(
+                "/api/v1/auth/login",
+                json={"email": "race@example.com", "password": "RacePassword123!"},
+            ).json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+            pid, _, _, _ = _create_approved_closed_room(setup_client, headers)
+
+            code = setup_client.post("/api/v1/telegram/pairing-code", headers=headers).json()[
+                "code"
+            ]
+            assert (
+                setup_client.post(
+                    "/api/v1/telegram/verify-pairing",
+                    headers={"X-Webhook-Secret": settings.telegram_worker_secret},
+                    json={"code": code, "telegram_chat_id": "777001"},
+                ).status_code
+                == 200
+            )
+
+        workers = 6
+        export_barrier = threading.Barrier(workers)
+
+        def call_export(_idx: int) -> tuple[int, dict]:
+            with TestClient(app) as worker_client:
+                export_barrier.wait(timeout=10)
+                resp = worker_client.post(
+                    f"/api/v1/exports/{pid}",
+                    headers={**headers, "Idempotency-Key": "race-export-key-001"},
+                    json={"format": "pdf", "layout": "A4"},
+                )
+                return resp.status_code, resp.json()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            export_outcomes = list(pool.map(call_export, range(workers)))
+
+        assert [code for code, _ in export_outcomes] == [201] * workers
+        export_ids = {body["id"] for _, body in export_outcomes}
+        assert len(export_ids) == 1
+        single_export_id = next(iter(export_ids))
+
+        send_barrier = threading.Barrier(workers)
+
+        def call_telegram_send(_idx: int) -> tuple[int, dict]:
+            with TestClient(app) as worker_client:
+                send_barrier.wait(timeout=10)
+                resp = worker_client.post(
+                    "/api/v1/telegram/send",
+                    headers={**headers, "Idempotency-Key": "race-tg-key-001"},
+                    json={"export_job_id": single_export_id},
+                )
+                return resp.status_code, resp.json()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            send_outcomes = list(pool.map(call_telegram_send, range(workers)))
+
+        assert [code for code, _ in send_outcomes] == [200] * workers
+        delivery_ids = {body["delivery_id"] for _, body in send_outcomes}
+        assert len(delivery_ids) == 1
+
+        with SessionLocal() as check_db:
+            assert (
+                check_db.query(ExportJob).filter(ExportJob.project_id == pid).count() == 1
+            )
+            assert (
+                check_db.query(TelegramDelivery)
+                .filter(TelegramDelivery.export_job_id == single_export_id)
+                .count()
+                == 1
+            )
+    finally:
+        app.dependency_overrides.clear()
+        race_engine.dispose()
+
+
+def test_element_approve_unapprove_edit_and_delete_sync_linked_observation(
+    client, auth_headers
+):
+    pid = client.post(
+        "/api/v1/projects", headers=auth_headers, json={"title": "Element Provenance"}
+    ).json()["id"]
+    rid = client.post(
+        f"/api/v1/projects/{pid}/rooms", headers=auth_headers, json={"label": "Kitchen"}
+    ).json()["id"]
+    wid = client.post(
+        f"/api/v1/rooms/{rid}/walls",
+        headers=auth_headers,
+        json={
+            "label": "North Wall",
+            "length_mm": 4000,
+            "height_mm": 2700,
+            "start_x_mm": 0,
+            "start_y_mm": 0,
+            "end_x_mm": 4000,
+            "end_y_mm": 0,
+        },
+    ).json()["id"]
+
+    parsed = client.post(
+        "/api/v1/ai/parse-text",
+        headers=auth_headers,
+        data={"project_id": pid, "text": "window width 120 cm"},
+    )
+    assert parsed.status_code == 200
+    obs_rest_id = parsed.json()["observations"][0]["candidate_id"]
+
+    elem_resp = client.post(
+        f"/api/v1/walls/{wid}/elements",
+        headers=auth_headers,
+        json={
+            "label": "Kitchen Window",
+            "kind": "window",
+            "offset_mm": 500,
+            "width_mm": 1200,
+            "height_mm": 1000,
+            "sill_mm": 900,
+            "source": "voice_ai",
+            "confidence": 0.96,
+            "source_observation_id": obs_rest_id,
+        },
+    )
+    assert elem_resp.status_code == 201
+    eid = elem_resp.json()["id"]
+    assert elem_resp.json()["review_status"] == "needs_review"
+
+    def obs_status(cid: str) -> dict:
+        r = client.get(f"/api/v1/ai/candidates/{cid}", headers=auth_headers)
+        assert r.status_code == 200
+        return r.json()
+
+    assert obs_status(obs_rest_id)["review_status"] == "needs_review"
+    assert obs_status(obs_rest_id)["linked_entity_type"] == "element"
+    assert obs_status(obs_rest_id)["linked_entity_id"] == eid
+
+    # 1. REST approve -> linked Observation becomes approved
+    approved = client.post(f"/api/v1/elements/{eid}/approve", headers=auth_headers)
+    assert approved.status_code == 200
+    assert approved.json()["review_status"] == "approved"
+    assert obs_status(obs_rest_id)["review_status"] == "approved"
+
+    # 2. REST un-approve (explicit review_status='needs_review') -> linked Observation resets
+    unapproved = client.put(
+        f"/api/v1/elements/{eid}",
+        headers=auth_headers,
+        json={"review_status": "needs_review", "version": approved.json()["version"]},
+    )
+    assert unapproved.status_code == 200
+    assert unapproved.json()["review_status"] == "needs_review"
+    assert unapproved.json()["approved_by"] is None
+    assert obs_status(obs_rest_id)["review_status"] == "needs_review"
+
+    # Re-approve via REST, then 3. REST edit-after-approval -> linked Observation resets
+    reapproved = client.post(f"/api/v1/elements/{eid}/approve", headers=auth_headers)
+    assert reapproved.status_code == 200
+    assert obs_status(obs_rest_id)["review_status"] == "approved"
+
+    edited = client.put(
+        f"/api/v1/elements/{eid}",
+        headers=auth_headers,
+        json={"offset_mm": 650, "version": reapproved.json()["version"]},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["review_status"] == "needs_review"
+    assert obs_status(obs_rest_id)["review_status"] == "needs_review"
+
+    # Re-approve via REST, then 4. REST delete -> linked Observation resets to needs_review
+    approved_before_del = client.post(
+        f"/api/v1/elements/{eid}/approve", headers=auth_headers
+    )
+    assert approved_before_del.status_code == 200
+    assert obs_status(obs_rest_id)["review_status"] == "approved"
+
+    deleted = client.delete(f"/api/v1/elements/{eid}", headers=auth_headers)
+    assert deleted.status_code == 200
+    assert obs_status(obs_rest_id)["review_status"] == "needs_review"
+
+    # Now verify all 4 transitions through /api/v1/sync/push as well
+    parsed_sync = client.post(
+        "/api/v1/ai/parse-text",
+        headers=auth_headers,
+        data={"project_id": pid, "text": "door width 90 cm"},
+    )
+    assert parsed_sync.status_code == 200
+    obs_sync_id = parsed_sync.json()["observations"][0]["candidate_id"]
+    sync_eid = str(uuid.uuid4())
+
+    create_op = client.post(
+        "/api/v1/sync/push",
+        headers=auth_headers,
+        json={
+            "operations": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "entity_type": "element",
+                    "entity_id": sync_eid,
+                    "operation": "create",
+                    "payload": {
+                        "wall_id": wid,
+                        "label": "Sync Door",
+                        "kind": "door",
+                        "offset_mm": 1800,
+                        "width_mm": 900,
+                        "height_mm": 2100,
+                        "sill_mm": 0,
+                        "source": "voice_ai",
+                        "confidence": 0.94,
+                        "source_observation_id": obs_sync_id,
+                    },
+                }
+            ]
+        },
+    )
+    assert create_op.json()["results"][0]["status"] == "applied"
+    assert obs_status(obs_sync_id)["review_status"] == "needs_review"
+    assert obs_status(obs_sync_id)["linked_entity_id"] == sync_eid
+
+    # 1b. Sync approve
+    sync_approve = client.post(
+        "/api/v1/sync/push",
+        headers=auth_headers,
+        json={
+            "operations": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "entity_type": "element",
+                    "entity_id": sync_eid,
+                    "operation": "update",
+                    "base_version": 1,
+                    "payload": {"review_status": "approved"},
+                }
+            ]
+        },
+    )
+    assert sync_approve.json()["results"][0]["status"] == "applied"
+    assert obs_status(obs_sync_id)["review_status"] == "approved"
+
+    # 2b. Sync un-approve
+    sync_unapprove = client.post(
+        "/api/v1/sync/push",
+        headers=auth_headers,
+        json={
+            "operations": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "entity_type": "element",
+                    "entity_id": sync_eid,
+                    "operation": "update",
+                    "base_version": 2,
+                    "payload": {"review_status": "needs_review"},
+                }
+            ]
+        },
+    )
+    assert sync_unapprove.json()["results"][0]["status"] == "applied"
+    assert obs_status(obs_sync_id)["review_status"] == "needs_review"
+
+    # Re-approve, then 3b. Sync edit-after-approval
+    assert (
+        client.post(
+            "/api/v1/sync/push",
+            headers=auth_headers,
+            json={
+                "operations": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "entity_type": "element",
+                        "entity_id": sync_eid,
+                        "operation": "update",
+                        "base_version": 3,
+                        "payload": {"review_status": "approved"},
+                    }
+                ]
+            },
+        ).json()["results"][0]["status"]
+        == "applied"
+    )
+    assert obs_status(obs_sync_id)["review_status"] == "approved"
+
+    sync_edit = client.post(
+        "/api/v1/sync/push",
+        headers=auth_headers,
+        json={
+            "operations": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "entity_type": "element",
+                    "entity_id": sync_eid,
+                    "operation": "update",
+                    "base_version": 4,
+                    "payload": {"offset_mm": 1900},
+                }
+            ]
+        },
+    )
+    assert sync_edit.json()["results"][0]["status"] == "applied"
+    assert obs_status(obs_sync_id)["review_status"] == "needs_review"
+
+    # Re-approve, then 4b. Sync delete
+    assert (
+        client.post(
+            "/api/v1/sync/push",
+            headers=auth_headers,
+            json={
+                "operations": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "entity_type": "element",
+                        "entity_id": sync_eid,
+                        "operation": "update",
+                        "base_version": 5,
+                        "payload": {"review_status": "approved"},
+                    }
+                ]
+            },
+        ).json()["results"][0]["status"]
+        == "applied"
+    )
+    assert obs_status(obs_sync_id)["review_status"] == "approved"
+
+    sync_delete = client.post(
+        "/api/v1/sync/push",
+        headers=auth_headers,
+        json={
+            "operations": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "entity_type": "element",
+                    "entity_id": sync_eid,
+                    "operation": "delete",
+                    "base_version": 6,
+                    "payload": {},
+                }
+            ]
+        },
+    )
+    assert sync_delete.json()["results"][0]["status"] == "applied"
+    assert obs_status(obs_sync_id)["review_status"] == "needs_review"
+
+
+def test_ai_rate_limit_sliding_window_blocks_double_quota_across_minute_boundary(
+    client, auth_headers, db_session, monkeypatch
+):
+    from sqlalchemy import delete
+
+    import app.core.throttle as throttle_mod
+    from app.models.db_models import AuthThrottle
+
+    db_session.execute(delete(AuthThrottle))
+    db_session.commit()
+    monkeypatch.setattr(settings, "rate_limit_ai_per_minute", 3)
+
+    clock = {"now": 1079.0}  # 1 second before minute boundary 1080 (18 * 60)
+    monkeypatch.setattr(throttle_mod.time, "time", lambda: clock["now"])
+
+    for _ in range(3):
+        res = client.post(
+            "/api/v1/ai/parse-text",
+            headers=auth_headers,
+            data={"text": "wall length 300 cm"},
+        )
+        assert res.status_code == 200
+
+    # Advance 2 seconds across the 60-second clock boundary (1079 -> 1081):
+    # sliding window must still count all 3 requests from t=1079 and reject with 429.
+    clock["now"] = 1081.0
+    across_boundary = client.post(
+        "/api/v1/ai/parse-text",
+        headers=auth_headers,
+        data={"text": "wall length 300 cm"},
+    )
+    assert across_boundary.status_code == 429
+    assert across_boundary.headers["Retry-After"] == "58"
+
+    # At t=1138 (59s elapsed since 1079), still blocked with Retry-After=1.
+    clock["now"] = 1138.0
+    nearly_expired = client.post(
+        "/api/v1/ai/parse-text",
+        headers=auth_headers,
+        data={"text": "wall length 300 cm"},
+    )
+    assert nearly_expired.status_code == 429
+    assert nearly_expired.headers["Retry-After"] == "1"
+
+    # At t=1139 (full 60s elapsed since 1079), quota reopens cleanly.
+    clock["now"] = 1139.0
+    allowed_again = client.post(
+        "/api/v1/ai/parse-text",
+        headers=auth_headers,
+        data={"text": "wall length 300 cm"},
+    )
+    assert allowed_again.status_code == 200
+

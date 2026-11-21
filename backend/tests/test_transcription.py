@@ -1,8 +1,8 @@
 """Speech-to-text ingestion: provider-neutral, fail-closed, disclosure-carrying."""
-import io
 import pytest
-from app.core.config import settings
+
 from app.ai import speech
+from app.core.config import settings
 
 
 def wav_bytes() -> bytes:

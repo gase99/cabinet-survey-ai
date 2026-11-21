@@ -1,8 +1,10 @@
 """AI candidate provenance persistence and strict separation from approved measurements."""
 from typing import Any
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from app.models.db_models import Asset, Observation, Project
+
+from app.models.db_models import Asset, Element, Observation, Project, Wall
 
 
 def validate_optional_provenance_refs(
@@ -119,10 +121,18 @@ def bind_observation_to_measurement(
         obs.linked_entity_id is not None
         and (obs.linked_entity_type != entity_type or obs.linked_entity_id != entity_id)
     ):
-        raise HTTPException(
-            status_code=409,
-            detail="AI candidate observation is already linked to another measurement",
-        )
+        prev_deleted = False
+        if obs.linked_entity_type == "wall":
+            prev_wall = db.get(Wall, obs.linked_entity_id)
+            prev_deleted = prev_wall is None or prev_wall.is_deleted
+        elif obs.linked_entity_type == "element":
+            prev_elem = db.get(Element, obs.linked_entity_id)
+            prev_deleted = prev_elem is None or prev_elem.is_deleted
+        if not prev_deleted:
+            raise HTTPException(
+                status_code=409,
+                detail="AI candidate observation is already linked to another measurement",
+            )
     obs.owner_id = obs.owner_id or user_id
     obs.project_id = project_id
     obs.linked_entity_type = entity_type
@@ -132,6 +142,23 @@ def bind_observation_to_measurement(
         obs.review_status = "needs_review"
     db.flush()
     return obs
+
+
+def unlink_replaced_observation(
+    db: Session,
+    *,
+    previous_observation_id: str | None,
+    new_observation_id: str | None,
+) -> None:
+    if not previous_observation_id or previous_observation_id == new_observation_id:
+        return
+    prev = db.get(Observation, previous_observation_id)
+    if prev is None:
+        return
+    prev.review_status = "needs_review"
+    prev.linked_entity_type = None
+    prev.linked_entity_id = None
+    db.flush()
 
 
 def sync_linked_observation_approval(

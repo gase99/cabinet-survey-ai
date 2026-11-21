@@ -1,7 +1,9 @@
 """Measurement approval integrity and append-only revision history."""
 from typing import Any
+
 from sqlalchemy.orm import Session
-from app.models.db_models import Element, MeasurementRevision, Project, Room, Wall, now_utc
+
+from app.models.db_models import Element, MeasurementRevision, Room, Wall, now_utc
 
 WALL_PAYLOAD_FIELDS = (
     "room_id",
@@ -99,12 +101,12 @@ def measurement_payload(entity_type: str, entity_or_values: Any) -> dict[str, An
 
 
 def resolve_project_id(db: Session, entity_type: str, entity: Wall | Element) -> str:
-    if entity_type == "wall":
+    if entity_type == "wall" and isinstance(entity, Wall):
         room = db.get(Room, entity.room_id)
         if room is None:
             raise ValueError("Room not found for wall")
         return room.project_id
-    if entity_type == "element":
+    if entity_type == "element" and isinstance(entity, Element):
         wall = db.get(Wall, entity.wall_id)
         if wall is None:
             raise ValueError("Wall not found for element")

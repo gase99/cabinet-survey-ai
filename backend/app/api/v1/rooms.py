@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Project, Room, User
@@ -68,6 +69,8 @@ def get_room(
     if not room or (room.is_deleted and not include_deleted):
         raise HTTPException(status_code=404, detail="Room not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     set_etag(response, room.version)
@@ -87,6 +90,8 @@ def update_room(
     if not room or room.is_deleted:
         raise HTTPException(status_code=404, detail="Room not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if project.is_deleted:
@@ -128,6 +133,8 @@ def delete_room(
     if not room or room.is_deleted:
         raise HTTPException(status_code=404, detail="Room not found")
     project = db.get(Project, room.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     if project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     soft_delete_room(db, room=room, project_id=project.id, user_id=user.id)
