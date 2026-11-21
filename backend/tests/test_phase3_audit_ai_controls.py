@@ -146,7 +146,7 @@ def test_gap_a_every_delete_endpoint_soft_deletes_excludes_from_lists_and_emits_
         headers=auth_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert export_resp.status_code == 201
+    assert export_resp.status_code == 202
     export_id = export_resp.json()["id"]
 
     pair_resp = client.post("/api/v1/telegram/pairing-code", headers=auth_headers)
@@ -263,7 +263,7 @@ def test_audit_log_records_all_required_actions_and_enforces_admin_only_get(
         headers=user_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert exp.status_code == 201
+    assert exp.status_code == 202
     export_id = exp.json()["id"]
 
     # 2. Edit-after-approval (REST PUT)
@@ -404,7 +404,12 @@ def test_audit_log_records_all_required_actions_and_enforces_admin_only_get(
     )
     assert export_ev["old_values"] is None
     assert export_ev["new_values"]["format"] == "pdf"
-    assert export_ev["new_values"]["status"] == "done"
+    assert export_ev["new_values"]["status"] == "queued"
+    complete_ev = next(
+        e for e in by_action["export.complete"] if e["entity_id"] == export_id
+    )
+    assert complete_ev["new_values"]["status"] == "done"
+    assert complete_ev["user_id"] == user_id
 
 
 def test_audit_log_blocks_updates_and_deletes_at_orm_and_sql_trigger_levels(
@@ -580,7 +585,7 @@ def test_idempotency_key_on_exports_and_telegram_send_with_conflict_and_expiry(
         headers=idem_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert first_exp.status_code == 201
+    assert first_exp.status_code == 202
     job1_id = first_exp.json()["id"]
 
     # Same key + same body returns stored result without creating another ExportJob
@@ -589,7 +594,7 @@ def test_idempotency_key_on_exports_and_telegram_send_with_conflict_and_expiry(
         headers=idem_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert replay_exp.status_code == 201
+    assert replay_exp.status_code == 202
     assert replay_exp.json() == first_exp.json()
     assert db_session.query(ExportJob).filter(ExportJob.project_id == pid1).count() == 1
 
@@ -623,7 +628,7 @@ def test_idempotency_key_on_exports_and_telegram_send_with_conflict_and_expiry(
         headers=idem_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert fresh_exp.status_code == 201
+    assert fresh_exp.status_code == 202
     job2_id = fresh_exp.json()["id"]
     assert job2_id != job1_id
     assert db_session.query(ExportJob).filter(ExportJob.project_id == pid1).count() == 2
@@ -858,7 +863,7 @@ def test_ai_provenance_persisted_and_cannot_become_approved_without_user_post_ap
         headers=auth_headers,
         json={"format": "pdf", "layout": "A4"},
     )
-    assert ok_export.status_code == 201
+    assert ok_export.status_code == 202
 
     # Editing the approved wall resets both wall and linked observation back to needs_review
     edited = client.put(
@@ -888,6 +893,7 @@ def test_concurrent_idempotency_race_produces_single_export_and_delivery(
 
     from app.core.database import Base, get_db
     from app.main import app
+    from app.services.export_jobs import get_export_session_scope
 
     db_file = tmp_path / "concurrent_idempotency.sqlite"
     race_engine = create_engine(
@@ -906,6 +912,7 @@ def test_concurrent_idempotency_race_produces_single_export_and_delivery(
 
     monkeypatch.setattr(settings, "telegram_worker_secret", "race-worker-secret-0123456789")
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_export_session_scope] = lambda: SessionLocal
     try:
         with TestClient(app) as setup_client:
             setup_client.post(
@@ -951,7 +958,7 @@ def test_concurrent_idempotency_race_produces_single_export_and_delivery(
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             export_outcomes = list(pool.map(call_export, range(workers)))
 
-        assert [code for code, _ in export_outcomes] == [201] * workers
+        assert [code for code, _ in export_outcomes] == [202] * workers
         export_ids = {body["id"] for _, body in export_outcomes}
         assert len(export_ids) == 1
         single_export_id = next(iter(export_ids))

@@ -1,7 +1,7 @@
 import os
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,15 @@ from app.core.deps import get_current_user
 from app.models.db_models import Element, ExportJob, Project, Room, User, Wall
 from app.schemas.drawing import ExportRequest
 from app.services.audit import entity_snapshot, log_audit
-from app.services.export_service import render_views_pdf, render_views_png
+from app.services.export_jobs import (
+    DONE,
+    QUEUED,
+    RenderSpec,
+    SessionScope,
+    expire_stale_jobs,
+    get_export_session_scope,
+    run_export_job,
+)
 from app.services.geometry_service import walls_and_elements_from_room
 from app.services.idempotency import (
     claim_idempotency,
@@ -90,14 +98,19 @@ def _flagged_element_proxy(elem: Element, issues: list[str]):
     )
 
 
-@router.post("/{project_id}", response_model=dict, status_code=201)
+@router.post("/{project_id}", response_model=dict, status_code=202)
 def create_export(
     project_id: str,
     payload: ExportRequest,
+    background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    session_scope: SessionScope = Depends(get_export_session_scope),
 ):
+    """Validate synchronously (409/400/422 are immediate), then render in the background.
+
+    Returns 202 with a job in status `queued`; poll `status_url`, then `download_url`."""
     with idempotency_guard(owner_id=user.id, scope="exports.create", key=idempotency_key):
         replay, claimed_record = claim_idempotency(
             db,
@@ -110,7 +123,7 @@ def create_export(
             return replay
 
         try:
-            return _execute_create_export(
+            response_body, spec = _execute_create_export(
                 project_id=project_id,
                 payload=payload,
                 claimed_record=claimed_record,
@@ -120,6 +133,30 @@ def create_export(
         except BaseException:
             release_uncommitted_idempotency(db, claimed_record)
             raise
+    background_tasks.add_task(
+        run_export_job,
+        response_body["id"],
+        spec,
+        claimed_record.id if claimed_record is not None else None,
+        session_scope,
+    )
+    return response_body
+
+
+def job_body(job: ExportJob) -> dict:
+    summary = job.result_summary or {}
+    return {
+        "id": job.id,
+        "project_id": job.project_id,
+        "status": job.status,
+        "format": job.format,
+        "layout": job.layout,
+        "status_url": f"/api/v1/exports/{job.id}",
+        "download_url": f"/api/v1/exports/{job.id}/download",
+        "error_message": job.error_message,
+        "excluded_items": summary.get("excluded_items", []),
+        "flagged_items": summary.get("flagged_items", []),
+    }
 
 
 def _execute_create_export(
@@ -129,7 +166,7 @@ def _execute_create_export(
     claimed_record,
     db: Session,
     user: User,
-):
+) -> tuple[dict, RenderSpec]:
     project = get_project_and_check(project_id, db, user)
     if payload.format not in ("pdf", "png"):
         raise HTTPException(status_code=400, detail="Invalid format")
@@ -310,81 +347,59 @@ def _execute_create_export(
             f"NOTE — Excluded unapproved/incomplete elements: {summary}"
         )
 
+    if project.customer_id:
+        from app.models.db_models import Customer
+
+        cust = db.get(Customer, project.customer_id)
+        customer_name = cust.name if cust else project.customer_id
+    else:
+        customer_name = None
+
     job = ExportJob(
         project_id=project_id,
         owner_id=user.id,
         format=payload.format,
         layout=payload.layout,
-        status="processing",
+        status=QUEUED,
+        result_summary={"excluded_items": excluded_items, "flagged_items": flagged_items},
     )
     db.add(job)
     db.flush()
-
-    try:
-        if project.customer_id:
-            from app.models.db_models import Customer
-
-            cust = db.get(Customer, project.customer_id)
-            customer_name = cust.name if cust else project.customer_id
-        else:
-            customer_name = None
-
-        if payload.format == "pdf":
-            path = render_views_pdf(
-                project_title=project.title,
-                customer_name=customer_name,
-                views=views,
-                layout=payload.layout,
-                notices=notices or None,
-            )
-        else:
-            path = render_views_png(
-                project_title=project.title,
-                views=views,
-                layout=payload.layout,
-                notices=notices or None,
-            )
-        job.file_path = path
-        job.status = "done"
-        response_body = {
-            "id": job.id,
-            "status": job.status,
-            "format": job.format,
-            "layout": job.layout,
-            "download_url": f"/api/v1/exports/{job.id}/download",
+    response_body = job_body(job)
+    complete_idempotency(
+        db,
+        record=claimed_record,
+        status_code=202,
+        response_body=response_body,
+    )
+    log_audit(
+        db,
+        user_id=user.id,
+        project_id=project_id,
+        action="export.create",
+        entity_type="export_job",
+        entity_id=job.id,
+        old_values=None,
+        new_values={
+            **entity_snapshot("export_job", job),
             "excluded_items": excluded_items,
             "flagged_items": flagged_items,
-        }
-        complete_idempotency(
-            db,
-            record=claimed_record,
-            status_code=201,
-            response_body=response_body,
-        )
-        log_audit(
-            db,
-            user_id=user.id,
-            project_id=project_id,
-            action="export.create",
-            entity_type="export_job",
-            entity_id=job.id,
-            old_values=None,
-            new_values={
-                **entity_snapshot("export_job", job),
-                "excluded_items": excluded_items,
-                "flagged_items": flagged_items,
-            },
-            detail=f"{payload.format} {payload.layout}",
-            commit=False,
-        )
-        db.commit()
-        return response_body
-    except Exception as err:
-        release_uncommitted_idempotency(db, claimed_record)
-        job.status = "failed"
-        job.error_message = "Drawing rendering failed"
-        db.commit()
-        raise HTTPException(status_code=500, detail="Drawing rendering failed") from err
+            "rooms": [room.label for room in rooms],
+            "views": len(views),
+        },
+        detail=f"{payload.format} {payload.layout}",
+        commit=False,
+    )
+    db.commit()
+    spec = RenderSpec(
+        project_title=project.title,
+        customer_name=customer_name,
+        views=views,
+        layout=payload.layout,
+        format=payload.format,
+        notices=notices,
+    )
+    return response_body, spec
 
 
 @router.get("", response_model=list[dict])
@@ -393,24 +408,19 @@ def list_exports(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    expire_stale_jobs(db, user.id)
     q = db.query(ExportJob).filter(ExportJob.owner_id == user.id)
     if project_id:
         q = q.filter(ExportJob.project_id == project_id)
     q = q.order_by(ExportJob.created_at.desc()).limit(50)
-    jobs = q.all()
-    return [
-        {
-            "id": j.id,
-            "project_id": j.project_id,
-            "format": j.format,
-            "layout": j.layout,
-            "status": j.status,
-            "download_url": f"/api/v1/exports/{j.id}/download",
-            "error_message": j.error_message,
-            "created_at": j.created_at,
-        }
-        for j in jobs
-    ]
+    return [{**job_body(j), "created_at": j.created_at} for j in q.all()]
+
+
+def _owned_job(export_id: str, db: Session, user: User) -> ExportJob:
+    job = db.get(ExportJob, export_id)
+    if not job or job.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Export not found")
+    return job
 
 
 @router.get("/{export_id}/download")
@@ -419,11 +429,13 @@ def download_export(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    job = db.get(ExportJob, export_id)
-    if not job or job.owner_id != user.id:
-        raise HTTPException(status_code=404, detail="Export not found")
-    if job.status != "done" or not job.file_path or not os.path.exists(job.file_path):
-        raise HTTPException(status_code=404, detail="File not ready")
+    expire_stale_jobs(db, user.id)
+    job = _owned_job(export_id, db, user)
+    if job.status != DONE:
+        raise HTTPException(status_code=409, detail={"message": "Export is not ready", "status": job.status,
+                                                     "error_message": job.error_message})
+    if not job.file_path or not os.path.exists(job.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
     media = "application/pdf" if job.format == "pdf" else "image/png"
     filename = f"{job.project_id}_{job.layout}.{job.format}"
     return FileResponse(job.file_path, media_type=media, filename=filename)
@@ -435,16 +447,7 @@ def get_export(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    job = db.get(ExportJob, export_id)
-    if not job or job.owner_id != user.id:
-        raise HTTPException(status_code=404, detail="Export not found")
-    return {
-        "id": job.id,
-        "project_id": job.project_id,
-        "format": job.format,
-        "layout": job.layout,
-        "status": job.status,
-        "download_url": f"/api/v1/exports/{job.id}/download",
-        "error_message": job.error_message,
-        "created_at": job.created_at,
-    }
+    """Job status: queued, running, done or failed."""
+    expire_stale_jobs(db, user.id)
+    job = _owned_job(export_id, db, user)
+    return {**job_body(job), "created_at": job.created_at, "updated_at": job.updated_at}

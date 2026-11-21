@@ -22,7 +22,7 @@ def test_export_pdf_and_png(client, auth_headers):
 
     # PDF A4
     exp = client.post(f"/api/v1/exports/{pid}", headers=auth_headers, json={"format":"pdf","layout":"A4"})
-    assert exp.status_code == 201
+    assert exp.status_code == 202
     job_id = exp.json()["id"]
     # Download
     dl = client.get(f"/api/v1/exports/{job_id}/download", headers=auth_headers)
@@ -32,7 +32,7 @@ def test_export_pdf_and_png(client, auth_headers):
 
     # PNG A3
     exp2 = client.post(f"/api/v1/exports/{pid}", headers=auth_headers, json={"format":"png","layout":"A3"})
-    assert exp2.status_code == 201
+    assert exp2.status_code == 202
     dl2 = client.get(f"/api/v1/exports/{exp2.json()['id']}/download", headers=auth_headers)
     assert dl2.status_code == 200
     assert "image/png" in dl2.headers["content-type"]
@@ -55,7 +55,7 @@ def test_export_rejects_invalid_or_unapproved_geometry(client, auth_headers):
     assert client.post(f'/api/v1/drawings/{project}/versions',headers=auth_headers).status_code==409
     for wall in ids:
         assert client.post(f'/api/v1/walls/{wall}/approve',headers=auth_headers).status_code==200
-    assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==201
+    assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==202
     client.put(f'/api/v1/walls/{ids[0]}',headers=auth_headers,json={'length_mm':2500,'version':2})
     assert client.post(f'/api/v1/exports/{project}',headers=auth_headers,json={}).status_code==400
 
@@ -85,7 +85,7 @@ def test_export_includes_every_room_not_only_the_first(client, auth_headers, tmp
 
     response = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
                            json={"format": "pdf", "layout": "A4"})
-    assert response.status_code == 201
+    assert response.status_code == 202
     download = client.get(f"/api/v1/exports/{response.json()['id']}/download", headers=auth_headers)
     assert download.status_code == 200
     pdf = download.content
@@ -95,7 +95,7 @@ def test_export_includes_every_room_not_only_the_first(client, auth_headers, tmp
 
     png_response = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
                                json={"format": "png", "layout": "A3"})
-    assert png_response.status_code == 201
+    assert png_response.status_code == 202
     png_download = client.get(f"/api/v1/exports/{png_response.json()['id']}/download",
                               headers=auth_headers)
     assert png_download.status_code == 200
@@ -112,3 +112,207 @@ def test_export_fails_when_any_room_has_unapproved_measurements(client, auth_hea
                            json={"format": "pdf", "layout": "A4"})
     assert response.status_code == 409
     assert "Living" in response.json()["detail"]
+
+
+def _element(client, auth_headers, wall_id, label, approve, offset_mm=500):
+    created = client.post(f"/api/v1/walls/{wall_id}/elements", headers=auth_headers, json={
+        "label": label, "kind": "window", "offset_mm": offset_mm, "width_mm": 900, "height_mm": 1200,
+        "sill_mm": 900, "depth_mm": 100})
+    assert created.status_code == 201, created.text
+    if approve:
+        assert client.post(f"/api/v1/elements/{created.json()['id']}/approve",
+                           headers=auth_headers).status_code == 200
+    return created.json()["id"]
+
+
+def _room_walls(client, auth_headers, room_id):
+    return client.get(f"/api/v1/rooms/{room_id}/walls", headers=auth_headers).json()
+
+
+def _pdf_pages(pdf: bytes) -> int:
+    import re
+    return len(re.findall(rb"/Type\s*/Page(?![s])", pdf))
+
+
+def test_export_response_is_a_queued_job_with_status_and_download_urls(client, auth_headers):
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Async"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    response = client.post(f"/api/v1/exports/{project}", headers=auth_headers, json={"format": "pdf"})
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["status_url"] == f"/api/v1/exports/{body['id']}"
+    assert body["download_url"] == f"/api/v1/exports/{body['id']}/download"
+    # TestClient runs background tasks before returning; the job has now finished.
+    status = client.get(body["status_url"], headers=auth_headers).json()
+    assert status["status"] == "done" and status["error_message"] is None
+    assert client.get(body["download_url"], headers=auth_headers).status_code == 200
+
+
+def test_job_status_flow_queued_running_done(client, auth_headers, db_session, monkeypatch):
+    from app.models.db_models import ExportJob
+    from app.services import export_jobs
+
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Flow"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    _rect_room(client, auth_headers, project, "Living", x=5000)
+    seen: list[str] = []
+    real_render = export_jobs.render
+
+    def observing_render(spec):
+        # Status observed through the public API while the renderer is working.
+        job = db_session.query(ExportJob).filter(ExportJob.project_id == project).one()
+        seen.append(client.get(f"/api/v1/exports/{job.id}", headers=auth_headers).json()["status"])
+        assert len(spec.views) == 10  # 2 rooms x (plan + 4 elevations)
+        return real_render(spec)
+
+    monkeypatch.setattr(export_jobs, "render", observing_render)
+    response = client.post(f"/api/v1/exports/{project}", headers=auth_headers, json={"format": "pdf"})
+    assert response.status_code == 202 and response.json()["status"] == "queued"
+    assert seen == ["running"]
+    job_id = response.json()["id"]
+    assert client.get(f"/api/v1/exports/{job_id}", headers=auth_headers).json()["status"] == "done"
+    pdf = client.get(f"/api/v1/exports/{job_id}/download", headers=auth_headers).content
+    assert _pdf_pages(pdf) == 10
+    from app.models.db_models import AuditEvent
+    actions = [e.action for e in db_session.query(AuditEvent).filter(AuditEvent.entity_id == job_id)]
+    assert sorted(actions) == ["export.complete", "export.create"]
+
+
+def test_download_before_completion_is_409_with_status(client, auth_headers, db_session):
+    from app.models.db_models import ExportJob
+
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Pending"}).json()["id"]
+    me = client.get("/api/v1/auth/me", headers=auth_headers).json()
+    job = ExportJob(project_id=project, owner_id=me["id"], format="pdf", layout="A4", status="queued")
+    db_session.add(job)
+    db_session.commit()
+    response = client.get(f"/api/v1/exports/{job.id}/download", headers=auth_headers)
+    assert response.status_code == 409
+    assert response.json()["detail"]["status"] == "queued"
+
+
+def test_render_failure_marks_job_failed_audits_and_allows_retry_with_same_key(
+        client, auth_headers, db_session, monkeypatch):
+    from app.models.db_models import AuditEvent, ExportJob
+    from app.services import export_jobs
+
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Fail"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+
+    def broken_render(spec):
+        raise RuntimeError("renderer crashed")
+
+    monkeypatch.setattr(export_jobs, "render", broken_render)
+    headers = {**auth_headers, "Idempotency-Key": "export-fail-retry-1"}
+    first = client.post(f"/api/v1/exports/{project}", headers=headers, json={"format": "pdf"})
+    assert first.status_code == 202
+    failed_id = first.json()["id"]
+    status = client.get(f"/api/v1/exports/{failed_id}", headers=auth_headers).json()
+    assert status["status"] == "failed"
+    assert status["error_message"] == "Drawing rendering failed"
+    assert "renderer crashed" not in str(status)  # internal error text is not leaked
+    download = client.get(f"/api/v1/exports/{failed_id}/download", headers=auth_headers)
+    assert download.status_code == 409 and download.json()["detail"]["status"] == "failed"
+    fail_events = db_session.query(AuditEvent).filter(
+        AuditEvent.entity_id == failed_id, AuditEvent.action == "export.fail").all()
+    assert len(fail_events) == 1 and fail_events[0].new_values["status"] == "failed"
+
+    # The same Idempotency-Key now enqueues a fresh attempt instead of replaying a failure.
+    monkeypatch.undo()
+    retry = client.post(f"/api/v1/exports/{project}", headers=headers, json={"format": "pdf"})
+    assert retry.status_code == 202
+    assert retry.json()["id"] != failed_id
+    assert client.get(f"/api/v1/exports/{retry.json()['id']}", headers=auth_headers).json()["status"] == "done"
+    assert db_session.query(ExportJob).filter(ExportJob.project_id == project).count() == 2
+
+
+def test_idempotent_retry_returns_same_job_without_new_render(client, auth_headers, db_session, monkeypatch):
+    from app.models.db_models import ExportJob
+    from app.services import export_jobs
+
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Idem"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    renders: list[str] = []
+    real_render = export_jobs.render
+
+    def counting_render(spec):
+        renders.append(spec.format)
+        return real_render(spec)
+
+    monkeypatch.setattr(export_jobs, "render", counting_render)
+    headers = {**auth_headers, "Idempotency-Key": "export-idem-async-1"}
+    first = client.post(f"/api/v1/exports/{project}", headers=headers, json={"format": "png", "layout": "A3"})
+    second = client.post(f"/api/v1/exports/{project}", headers=headers, json={"format": "png", "layout": "A3"})
+    assert first.status_code == second.status_code == 202
+    assert first.json() == second.json()
+    assert renders == ["png"]
+    assert db_session.query(ExportJob).filter(ExportJob.project_id == project).count() == 1
+    # Reusing the key with a different body is rejected.
+    other = client.post(f"/api/v1/exports/{project}", headers=headers, json={"format": "pdf"})
+    assert other.status_code == 422
+
+
+def test_stale_active_job_is_reported_failed(client, auth_headers, db_session):
+    from datetime import timedelta
+
+    from app.models.db_models import ExportJob, now_utc
+
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Stale"}).json()["id"]
+    me = client.get("/api/v1/auth/me", headers=auth_headers).json()
+    old = now_utc() - timedelta(hours=2)
+    job = ExportJob(project_id=project, owner_id=me["id"], format="pdf", layout="A4", status="running",
+                    created_at=old, updated_at=old)
+    db_session.add(job)
+    db_session.commit()
+    db_session.execute(ExportJob.__table__.update().where(ExportJob.id == job.id).values(updated_at=old))
+    db_session.commit()
+    status = client.get(f"/api/v1/exports/{job.id}", headers=auth_headers).json()
+    assert status["status"] == "failed" and "interrupted" in status["error_message"]
+
+
+def test_second_room_unapproved_element_is_rejected_excluded_or_flagged_only_explicitly(
+        client, auth_headers):
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Second room"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    living = _rect_room(client, auth_headers, project, "Living", x=5000)
+    wall = _room_walls(client, auth_headers, living)[0]["id"]
+    _element(client, auth_headers, wall, "ApprovedWin", approve=True)
+    _element(client, auth_headers, wall, "DraftWin", approve=False, offset_mm=2000)
+
+    strict = client.post(f"/api/v1/exports/{project}", headers=auth_headers, json={"format": "pdf"})
+    assert strict.status_code == 409
+    assert "Living" in strict.json()["detail"] and "DraftWin" in strict.json()["detail"]
+
+    excluded = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                           json={"format": "pdf", "exclude_unapproved": True})
+    assert excluded.status_code == 202
+    items = excluded.json()["excluded_items"]
+    assert [(i["room"], i["label"]) for i in items] == [("Living", "DraftWin")]
+    status = client.get(f"/api/v1/exports/{excluded.json()['id']}", headers=auth_headers).json()
+    assert status["status"] == "done" and status["excluded_items"] == items
+    pdf = client.get(f"/api/v1/exports/{excluded.json()['id']}/download", headers=auth_headers).content
+    assert _pdf_pages(pdf) == 10  # both rooms are present
+
+    flagged = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                          json={"format": "pdf", "flag_unapproved": True})
+    assert flagged.status_code == 202
+    assert [(i["room"], i["label"]) for i in flagged.json()["flagged_items"]] == [("Living", "DraftWin")]
+
+    both = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                       json={"format": "pdf", "flag_unapproved": True, "exclude_unapproved": True})
+    assert both.status_code == 422
+
+
+def test_second_room_unapproved_wall_is_409_even_with_exclude(client, auth_headers):
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"title": "Second wall"}).json()["id"]
+    _rect_room(client, auth_headers, project, "Kitchen")
+    _rect_room(client, auth_headers, project, "Living", x=5000, sketch_wall=True)
+    excluded = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                           json={"format": "pdf", "exclude_unapproved": True})
+    assert excluded.status_code == 409 and "Living" in excluded.json()["detail"]
+    flagged = client.post(f"/api/v1/exports/{project}", headers=auth_headers,
+                          json={"format": "pdf", "flag_unapproved": True})
+    assert flagged.status_code == 202
+    assert [i["entity_type"] for i in flagged.json()["flagged_items"]] == ["wall"]
+    assert flagged.json()["flagged_items"][0]["room"] == "Living"

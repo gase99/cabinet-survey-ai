@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     upload_max_bytes: int = 15 * 1024 * 1024
     upload_max_dimension: int = 8192
     upload_max_pixels: int = 40_000_000
+    # Background export rendering (in-process; see docs/operations.md).
+    export_max_concurrent_jobs: int = 2
+    export_job_stale_seconds: int = 1800
     rate_limit_auth_per_minute: int = 10
     rate_limit_ai_per_minute: int = 20
     idempotency_ttl_seconds: int = 86400

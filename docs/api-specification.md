@@ -8,7 +8,17 @@ Base path: `/api/v1` (plus root probe routes `/health` and `/ready`). OpenAPI is
 - Projects & survey: `/customers`, `/projects`, `/projects/{id}`, `/projects/{id}/rooms`, `/rooms/{id}/walls`, `/walls/{id}/elements`
 - Approvals & revisions: `POST /walls/{id}/approve`, `POST /elements/{id}/approve`, `GET /walls/{id}/revisions`, `GET /elements/{id}/revisions`
 - AI & assets: `/assets`, `/ai/parse-text`, `/ai/sketch-analysis`, `/ai/transcription`, `/ai/candidates`, `/ai/candidates/{id}`
-- Drawings & exports: `/drawings/{project_id}/plan`, `/drawings/{project_id}/elevations`, `/exports`, `POST /exports/{project_id}`, `GET /exports/{id}/download`
+- Drawings & exports: `/drawings/{project_id}/plan`, `/drawings/{project_id}/elevations`, `/exports`, `POST /exports/{project_id}`, `GET /exports/{id}` (status), `GET /exports/{id}/download`
+- **Background exports:** `POST /exports/{project_id}` validates synchronously — every
+  non-deleted room of the project is included; unapproved/incomplete walls or elements
+  in *any* room return `409` unless `exclude_unapproved` (elements only; walls still
+  `409`) or `flag_unapproved` is explicitly set (both together: `422`); invalid geometry
+  `400`. On success it returns **`202`** with `{id, status: "queued", status_url,
+  download_url, excluded_items, flagged_items}`. Rendering runs after the response.
+  `GET /exports/{id}` reports `queued`, `running`, `done` or `failed` (+ `error_message`).
+  `GET /exports/{id}/download` returns the file only when `done`, otherwise `409` with
+  the current status. Audit: `export.create` (queued), then `export.complete` or
+  `export.fail`. A failed render releases its Idempotency-Key so the same key can retry.
 - Telegram: client routes `/telegram/{pairing-code,link-status,unlink,send,deliveries}`; internal worker-only routes `/telegram/{verify-pairing,internal/pending-deliveries,internal/deliveries/{id},internal/delivery-result}` (denied at the public gateway); `POST /api/v1/telegram/webhook` is intentionally disabled (`501`, gateway `404`) because public Bot API webhooks route to `services/telegram-bot` (`POST /telegram/webhook` -> worker `:8081/webhook`)
 - Offline sync & admin: `/sync/push`, `/sync/pull`, `/sync/conflicts`, `/admin/{users,ai-config,ai-usage,audit,health}`
 

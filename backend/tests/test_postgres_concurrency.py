@@ -166,7 +166,7 @@ def test_postgres_concurrent_idempotency_creates_single_export_and_delivery(monk
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         exp_results = list(pool.map(run_export, range(workers)))
-    assert [s for s, _ in exp_results] == [201] * workers
+    assert [s for s, _ in exp_results] == [202] * workers
     export_ids = {b["id"] for _, b in exp_results}
     assert len(export_ids) == 1
     export_id = next(iter(export_ids))
