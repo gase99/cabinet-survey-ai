@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     stt_model: str | None = "whisper-1"
     audio_max_bytes: int = 10 * 1024 * 1024
 
+    # Image uploads: JPEG/PNG/WebP only (magic bytes), re-encoded server-side.
     upload_max_bytes: int = 15 * 1024 * 1024
-    upload_allowed_types: str = "image/jpeg,image/png,image/webp,application/pdf"
+    upload_max_dimension: int = 8192
+    upload_max_pixels: int = 40_000_000
     rate_limit_auth_per_minute: int = 10
     rate_limit_ai_per_minute: int = 20
     idempotency_ttl_seconds: int = 86400
