@@ -79,7 +79,7 @@ class Api {
         ? 'image/jpeg' : 'image/webp';
     final request = http.MultipartRequest('POST', base.resolve('ai/sketch-analysis'));
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(mime)));
+    request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: sketchUploadName(filename, mime), contentType: MediaType.parse(mime)));
     final response = await http.Response.fromStream(await client.send(request).timeout(const Duration(seconds: 90)));
     if (response.statusCode != 200) {
       String message = 'HTTP ${response.statusCode}';
@@ -89,4 +89,13 @@ class Api {
     return jsonDecode(utf8.decode(response.bodyBytes)) as Json;
   }
   void close() => client.close();
+}
+
+/// The server rejects a filename extension that disagrees with the image's magic bytes,
+/// so the display name sent with an upload always carries the sniffed type's extension.
+String sketchUploadName(String filename, String mime) {
+  final ext = mime == 'image/png' ? 'png' : mime == 'image/jpeg' ? 'jpg' : 'webp';
+  final base = filename.split(RegExp(r'[/\\]')).last;
+  final stem = base.replaceFirst(RegExp(r'\.[^.]*$'), '');
+  return '${stem.isEmpty ? 'sketch' : stem}.$ext';
 }

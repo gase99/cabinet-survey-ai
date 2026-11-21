@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -61,6 +62,22 @@ void main() {
     final res=await api.request('POST','exports/p1',{'format':'pdf','layout':'A4'},{'Idempotency-Key':'idem-123'}) as Map<String,dynamic>;
     expect(seenKey,'idem-123');
     expect(res['id'],'job-1');
+    api.close();
+  });
+  test('sketch upload name always matches the sniffed image type', () async {
+    expect(sketchUploadName('IMG_0001.jpg', 'image/png'), 'IMG_0001.png');
+    expect(sketchUploadName('scan.PNG', 'image/jpeg'), 'scan.jpg');
+    expect(sketchUploadName('../../x', 'image/webp'), 'x.webp');
+    expect(sketchUploadName('', 'image/jpeg'), 'sketch.jpg');
+    String? body;
+    final api=Api(baseUrl:'https://example.invalid/api/v1/',client:MockClient((request) async {
+      body=latin1.decode(request.bodyBytes);
+      return http.Response('{"observations":[]}',200);
+    }));
+    final png=[137,80,78,71,13,10,26,10,0,0];
+    await api.sketch(Uint8List.fromList(png),'photo.jpg');
+    expect(body, contains('filename="photo.png"'));
+    expect(body, contains('content-type: image/png'));
     api.close();
   });
 }
