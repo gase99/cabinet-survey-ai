@@ -162,7 +162,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           working-directory: apps/client
-          script: set -o pipefail; bash ../../scripts/android-emulator-smoke.sh 2>&1 | tee "$RUNNER_TEMP/emulator-test.log"
+          script: bash -o pipefail -c 'bash ../../scripts/android-emulator-smoke.sh 2>&1 | tee "$RUNNER_TEMP/emulator-test.log"'
       - name: Preserve emulator diagnostics on GitHub API
         if: failure()
         run: |
