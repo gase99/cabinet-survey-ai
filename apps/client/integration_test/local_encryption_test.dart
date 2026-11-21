@@ -56,6 +56,10 @@ void main() {
     // Loss of the Keystore key is detected without trying to use an unencrypted database.
     await SecureDatabase.channel.invokeMethod<void>('resetKey');
     await expectLater(SecureDatabase.open(), throwsA(isA<LocalResetRequired>()));
+    // Replace the missing key with a different valid wrapping/password pair;
+    // SQLCipher must reject it and the app must offer recovery, not crash.
+    await SecureDatabase.channel.invokeMethod<String>('databasePassword', {'create': true});
+    await expectLater(SecureDatabase.open(), throwsA(isA<LocalResetRequired>()));
     await SecureDatabase.resetAfterConsent();
     db = await SecureDatabase.open();
     expect(await SecureDatabase.needsResync(db.path), true);
