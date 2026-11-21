@@ -26,18 +26,8 @@ jobs:
           pip install -r backend/requirements.lock -r backend/requirements-dev.lock
           python -m pytest tests -q
           cd backend && python -m pytest -q
-      - name: Resolve Android dependencies (platform sources are committed)
-        run: flutter pub get
-        working-directory: apps/client
-      - name: Emit pubspec.lock snapshot for lockfile bootstrap
-        run: |
-          python3 - <<'PY'
-          import base64
-          from pathlib import Path
-          b64 = base64.b64encode(Path('pubspec.lock').read_bytes()).decode('ascii')
-          for idx in range(0, len(b64), 3000):
-              print(f"::notice title=PUBSPEC_LOCK_{idx//3000}::{b64[idx:idx+3000]}")
-          PY
+      - name: Resolve Android dependencies from locked pubspec.lock
+        run: flutter pub get --enforce-lockfile
         working-directory: apps/client
       - run: flutter analyze --no-fatal-infos
         working-directory: apps/client
@@ -162,7 +152,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
         working-directory: apps/client
       - name: Real Android emulator capture and process restart
         uses: reactivecircus/android-emulator-runner@v2

@@ -111,6 +111,13 @@ def test_python_lockfiles_and_static_analysis_gates_are_enforced():
     assert 'mypy app migrations tests' in backend_ci
     worker_ci = (ROOT / '.github/workflows/worker-ci.yml').read_text()
     assert 'pip install -r requirements.lock' in worker_ci
+    pubspec_lock = CLIENT / 'pubspec.lock'
+    assert pubspec_lock.is_file()
+    assert 'packages:' in pubspec_lock.read_text()
+    client_ci = (ROOT / '.github/workflows/client-ci.yml').read_text()
+    assert 'flutter pub get --enforce-lockfile' in client_ci
+    assert 'PUBSPEC_LOCK_' not in client_ci
+    assert 'flutter pub get --enforce-lockfile' in (ROOT / 'scripts/build-android.sh').read_text()
 
 
 def test_phase_gate_and_telegram_single_replica_docs_are_consistent():

@@ -139,9 +139,9 @@ void main() {
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
         }
-        if (path.endsWith('/sync/tombstones')) {
+        if (path.endsWith('/sync/pull')) {
           return http.Response.bytes(
-            utf8.encode(jsonEncode({'tombstones': <Json>[]})),
+            utf8.encode(jsonEncode({'receipts': <Json>[], 'tombstones': <Json>[]})),
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -179,6 +179,7 @@ void main() {
       });
       await controller.store.save('wall', {
         ...voiceWall.prefill(),
+        'source': 'voice_ai',
         'id': wallId,
         'room_id': roomId,
         'label': 'Wall North',

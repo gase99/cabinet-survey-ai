@@ -58,12 +58,16 @@ def test_postgres_quota_is_shared_and_atomic(monkeypatch):
     monkeypatch.setattr(settings,'rate_limit_auth_per_minute',2)
     with Session(engine) as db:
         db.execute(delete(AuthThrottle));db.commit()
-    def attempt(index):
-        with TestClient(app) as worker:
-            return worker.post('/api/v1/auth/login',json={'email':'not-present@example.com','password':'FixtureWrong'}).status_code
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        statuses=list(pool.map(attempt,range(8)))
-    assert statuses.count(401)==2 and statuses.count(429)==6
+    try:
+        def attempt(index):
+            with TestClient(app) as worker:
+                return worker.post('/api/v1/auth/login',json={'email':'not-present@example.com','password':'FixtureWrong'}).status_code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            statuses=list(pool.map(attempt,range(8)))
+        assert statuses.count(401)==2 and statuses.count(429)==6
+    finally:
+        with Session(engine) as db:
+            db.execute(delete(AuthThrottle));db.commit()
 
 
 def test_postgres_concurrent_rest_put_returns_409_on_stale_version():

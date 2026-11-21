@@ -72,7 +72,6 @@ class VoiceProposal {
     if (field != null) {
       return <String, dynamic>{
         field: valueMm,
-        'source': 'voice_ai',
         if (confidence != null) 'confidence': confidence,
         if (candidateId != null) 'source_observation_id': candidateId,
       };
@@ -82,7 +81,6 @@ class VoiceProposal {
       return <String, dynamic>{
         'kind': elemKind,
         'width_mm': valueMm,
-        'source': 'voice_ai',
         if (confidence != null) 'confidence': confidence,
         if (candidateId != null) 'source_observation_id': candidateId,
       };
