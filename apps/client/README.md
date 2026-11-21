@@ -50,9 +50,10 @@ invalid API host; its artifact is **not for publication or connected production 
   attempts a server re-sync after sign-in. Unreadable counts are shown as unknown. **All
   unsynced changes, device-local data and photos are permanently lost**: photo sync is not
   implemented. Cancel leaves the old data untouched. Failed sync remains marked for retry.
-- If the encrypted database key is unavailable or wrong, the app asks before wiping the
+- If the encrypted database key is unavailable or wrong, or SQLCipher reports a generic
+  open failure, the app asks before wiping the
   encrypted cache, creates a new key/database, and re-syncs server data after sign-in.
-  Other storage errors fail closed rather than automatically deleting data.
+  No data is deleted without confirmation, including for generic open failures.
 - Backup and device-transfer rules exclude app data. Uninstall, device replacement, loss
   of the Keystore key, and unsupported restores make device-only data unrecoverable. Keep
   server sync current; photos are local-only and require a separate owner-managed copy.

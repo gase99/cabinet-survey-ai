@@ -68,7 +68,7 @@ class SecureDatabase {
       return db;
     } on plain.DatabaseException catch (error) {
       final text = error.toString().toLowerCase();
-      if (exists && (text.contains('not a database') || text.contains('file is encrypted'))) {
+      if (exists && (text.contains('not a database') || text.contains('file is encrypted') || text.contains('open_failed'))) {
         throw const LocalResetRequired(invalidKey: true);
       }
       rethrow;

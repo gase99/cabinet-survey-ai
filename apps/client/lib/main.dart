@@ -51,7 +51,7 @@ class _LocalResetScreenState extends State<LocalResetScreen> {
     String count(int? value) => value?.toString() ?? 'unknown / نامشخص';
     return Scaffold(body:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),
       child:Column(mainAxisSize:MainAxisSize.min, children:[
-        Text(warning.invalidKey ? 'Local encryption key unavailable / کلید محلی در دسترس نیست' :
+        Text(warning.invalidKey ? 'Local database key or file unavailable / کلید یا پایگاه داده محلی در دسترس نیست' :
           'Old unencrypted database found / پایگاه داده رمزگذاری‌نشده یافت شد', style:Theme.of(context).textTheme.titleLarge),
         if (!warning.invalidKey) Text('Unsynced or conflicted operations / عملیات همگام‌نشده: ${count(warning.pending)}\n'
           'Local-only records / داده‌های محلی: ${count(warning.localRecords)}\n'

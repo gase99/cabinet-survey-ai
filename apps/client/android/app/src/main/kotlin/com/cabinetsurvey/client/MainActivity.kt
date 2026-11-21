@@ -20,6 +20,7 @@ class MainActivity : FlutterActivity() {
                         "databasePassword" -> result.success(security.databasePassword(call.argument<Boolean>("create") == true))
                         "resetKey" -> { security.resetKey(); result.success(null) }
                         "clearPickerCache" -> { security.clearPickerCache(); result.success(null) }
+                        "pickerCachePath" -> result.success(cacheDir.absolutePath)
                         else -> result.notImplemented()
                     }
                 } catch (error: Exception) {

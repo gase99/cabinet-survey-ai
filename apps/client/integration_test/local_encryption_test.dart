@@ -5,11 +5,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:sqflite/sqflite.dart' as plain;
 import 'package:sqflite_sqlcipher/sqflite.dart' as cipher;
+import 'package:image_picker/image_picker.dart';
+import 'package:cabinet_survey_ai/services/photo_importer.dart';
 import 'package:cabinet_survey_ai/core/store.dart';
 import 'package:cabinet_survey_ai/core/secure_database.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('picker cache files are removed on success, failure and cancellation', (tester) async {
+    final cache = (await SecureDatabase.channel.invokeMethod<String>('pickerCachePath'))!;
+    for (final scenario in ['success', 'cancel', 'picker-error', 'save-error']) {
+      final file = File('$cache/picker-fixture-$scenario.jpg');
+      await file.writeAsBytes([1, 2, 3]);
+      final importer = PhotoImporter(pick: (_) async {
+        if (scenario == 'picker-error') throw StateError('picker failed');
+        return scenario == 'cancel' ? null : XFile(file.path);
+      });
+      Future<void> capture() => importer.capture(ImageSource.gallery, (_, bytes) async {
+        expect(bytes, [1, 2, 3]);
+        if (scenario == 'save-error') throw StateError('save failed');
+      });
+      if (scenario.endsWith('error')) {
+        await expectLater(capture(), throwsStateError);
+      } else {
+        await capture();
+      }
+      expect(await file.exists(), false, reason: scenario);
+    }
+  });
   testWidgets('legacy warning, encrypted storage, wrong key and reset', (tester) async {
     final dir = await plain.getDatabasesPath();
     final old = '$dir/${SecureDatabase.oldName}';

@@ -65,7 +65,8 @@ class LocalSecurity(private val context: Context) {
     fun clearPickerCache() {
         // image_picker puts camera originals, copied gallery images and resized files
         // under this app-private cache. Never delete a URI/source outside this directory.
-        context.cacheDir.listFiles()?.forEach { child ->
+        val files = context.cacheDir.listFiles() ?: throw IllegalStateException("Cache unavailable")
+        files.forEach { child ->
             check(child.deleteRecursively()) { "Could not clear temporary files" }
         }
     }
