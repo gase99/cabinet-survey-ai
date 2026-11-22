@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 const translations = <String,String>{
   'Document saved':'سند ذخیره شد',
+  'Server unreachable. Start the server and try again.':'سرور در دسترس نیست. سرور را اجرا کنید و دوباره تلاش کنید.',
   'Cabinet Survey AI':'برداشت کابینت', 'Sign in':'ورود', 'Register':'ثبت‌نام',
   'Email':'ایمیل', 'Password':'رمز عبور', 'Name':'نام',
   'Capture offline':'برداشت آفلاین', 'Projects':'پروژه‌ها', 'Search':'جستجو',

@@ -13,6 +13,12 @@ void main() {
   });
   test('debug permits emulator HTTP but never relative URLs', () {
     expect(validateApiBase('http://10.0.2.2:8000/api/v1/', release: false).host, '10.0.2.2');
-    expect(() => validateApiBase('/api/v1/', release: false), throwsArgumentError);
+    expect(validateApiBase('http://127.0.0.1:8000/api/v1/', release: false).host, '127.0.0.1');
+    expect(validateApiBase('https://example.org/prefix/api/v1/', release: false).scheme, 'https');
+    for (final url in ['', '/api/v1/', 'http://user:pass@host/api/v1/',
+        'ftp://host/api/v1/', 'http://host/api/v1/?q=1', 'http://host/api/v1/#part',
+        'http://host/api/v1']) {
+      expect(() => validateApiBase(url, release: false), throwsArgumentError, reason: url);
+    }
   });
 }

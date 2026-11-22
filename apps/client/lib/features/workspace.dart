@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/document_saver.dart';
@@ -45,11 +48,20 @@ class _WorkspaceState extends State<Workspace> {
       photos=images; queue=q;
     });
   }
-  Future<void> run(Future<void> Function() work) async {
+  Future<void> run(Future<void> Function() work, {bool loginRequest = false}) async {
     if (busy) return;
     setState(() => busy=true);
     try { await work(); await reload(); }
-    catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$error'))); }
+    catch (error) {
+      if (mounted) {
+        final unreachable = loginRequest &&
+          (error is http.ClientException || error is SocketException || error is TimeoutException);
+        final message = unreachable
+          ? '${tr(context, 'Server unreachable. Start the server and try again.')}\n${c.api.base}'
+          : '$error';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));
+      }
+    }
     finally { if (mounted) setState(() => busy=false); }
   }
   Future<Json?> form(String title, Map<String,String> fields, {Json? initial, Set<String> numeric = const {},
@@ -65,7 +77,7 @@ class _WorkspaceState extends State<Workspace> {
     await run(() async {
       await c.login(values['email'] as String,values['password'] as String,name:values['name'] as String?);
       projectId=null; roomId=null; undo.clear(); redo.clear();
-    });
+    }, loginRequest:true);
   }
   Future<void> editProject([Json? project]) async {
     final value=await form(project==null?'New project':'Review',{'title':'Title','site_notes':'Notes'},initial:project,optional:{'site_notes'});
