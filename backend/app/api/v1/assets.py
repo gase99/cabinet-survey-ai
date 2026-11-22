@@ -9,9 +9,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.db_models import Asset, Project, User
-from app.services.uploads import validated_upload
+from app.services.uploads import safe_display_name, validated_image_upload
 
 router = APIRouter(prefix="/assets", tags=["assets"])
+
+
+def _storage_dir() -> Path:
+    return Path(os.getenv("ASSET_STORAGE_DIR", "./var/data/assets"))
+
 
 @router.post("", status_code=201)
 async def upload_asset(
@@ -24,18 +29,18 @@ async def upload_asset(
         proj = db.get(Project, project_id)
         if not proj or proj.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Project not found")
-    data, ext = await validated_upload(file)
-    storage_dir = Path(os.getenv("ASSET_STORAGE_DIR", "./var/data/assets"))
+    image = await validated_image_upload(file)
+    storage_dir = _storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fname = f"{uuid.uuid4().hex}{ext}"
-    fpath = str(storage_dir / fname)
-    filename = Path(file.filename or fname).name
-    if len(filename)>200 or any(ord(c)<32 for c in filename):
-        raise HTTPException(422,"Invalid filename")
-    fd = os.open(fpath, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    # Server-generated random name; nothing from the client influences the path.
+    target = storage_dir / f"{uuid.uuid4().hex}{image.ext}"
+    if target.resolve().parent != storage_dir.resolve():
+        raise HTTPException(500, "Asset storage misconfigured")
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as output:
-        output.write(data)
-    asset = Asset(owner_id=user.id, project_id=project_id, filename=filename, content_type=file.content_type or "application/octet-stream", size_bytes=len(data), storage_path=fpath)
+        output.write(image.data)
+    asset = Asset(owner_id=user.id, project_id=project_id, filename=safe_display_name(file.filename, image.ext),
+                  content_type=image.content_type, size_bytes=len(image.data), storage_path=str(target))
     db.add(asset)
     db.commit()
     db.refresh(asset)
@@ -61,6 +66,8 @@ def download_asset(asset_id: str, db: Session = Depends(get_db), user: User = De
     a = db.get(Asset, asset_id)
     if not a or a.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Asset not found")
-    if not a.storage_path or not os.path.exists(a.storage_path):
+    path = Path(a.storage_path or "")
+    # Defense in depth: only serve files that live directly inside the asset directory.
+    if not a.storage_path or path.resolve().parent != _storage_dir().resolve() or not path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(a.storage_path, media_type=a.content_type, filename=a.filename)

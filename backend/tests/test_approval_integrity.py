@@ -484,7 +484,7 @@ def test_export_excludes_or_flags_unapproved_and_unknown_dimension_elements(
         headers=auth_headers,
         json={"format": "pdf", "layout": "A4", "exclude_unapproved": True},
     )
-    assert excl_resp.status_code == 201
+    assert excl_resp.status_code == 202
     excl_body = excl_resp.json()
     excluded_labels = {item["label"] for item in excl_body["excluded_items"]}
     assert excluded_labels == {"DraftDoor", "MysteryPipe"}
@@ -503,7 +503,7 @@ def test_export_excludes_or_flags_unapproved_and_unknown_dimension_elements(
         headers=auth_headers,
         json={"format": "pdf", "layout": "A4", "flag_unapproved": True},
     )
-    assert flag_resp.status_code == 201
+    assert flag_resp.status_code == 202
     flag_body = flag_resp.json()
     flagged_by_label = {
         item["label"]: item["reasons"] for item in flag_body["flagged_items"]

@@ -13,6 +13,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/** The wrapped database password or its Keystore wrapping key no longer exists. Only this
+ * case (and SQLCipher "not a database"/"file is encrypted") is reported as needing reset;
+ * every other failure is surfaced as retryable first. */
+class WrappedKeyMissingException(message: String) : IllegalStateException(message)
+
 /** The random database password is encrypted by a non-exportable Android Keystore key.
  * Only the IV and ciphertext are persisted, in app-private no-backup storage. */
 class LocalSecurity(private val context: Context) {
@@ -26,14 +31,14 @@ class LocalSecurity(private val context: Context) {
         val file = wrappedFile
         if (file.baseFile.exists()) {
             val wrappingKey = store.getKey(alias, null) as? SecretKey
-                ?: throw IllegalStateException("Keystore key unavailable")
+                ?: throw WrappedKeyMissingException("Keystore key unavailable")
             val bytes = file.readFully()
             require(bytes.size >= 12 + 16) { "Invalid wrapped key" }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
             return Base64.encodeToString(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Base64.NO_WRAP)
         }
-        check(create) { "Wrapped database key unavailable" }
+        if (!create) throw WrappedKeyMissingException("Wrapped database key unavailable")
         val wrappingKey = (store.getKey(alias, null) as? SecretKey) ?: KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
         ).run {

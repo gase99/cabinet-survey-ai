@@ -181,9 +181,11 @@ class ExportJob(Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     format: Mapped[str] = mapped_column(String(10), nullable=False)  # pdf, png
     layout: Mapped[str] = mapped_column(String(10), nullable=False, default="A4")  # A3, A4
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending, processing, done, failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")  # queued, running, done, failed
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # excluded_items / flagged_items decided at request time (never re-derived later).
+    result_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -5,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, get_db
 from app.main import app
+from app.services.export_jobs import get_export_session_scope
 
 # Use in-memory SQLite for tests
 TEST_DB_URL = "sqlite:///:memory:"
@@ -31,6 +34,8 @@ def client(db_session):
     def override_get_db():
         yield db_session
     app.dependency_overrides[get_db] = override_get_db
+    # Background export jobs share the test transaction instead of opening a new session.
+    app.dependency_overrides[get_export_session_scope] = lambda: (lambda: nullcontext(db_session))
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

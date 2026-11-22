@@ -76,13 +76,16 @@ void main() {
     expect((await LocalStore(db, 'device-local').get('p2'))!['title'], secret);
     expect((await LocalStore(db, 'device-local').photos('p2')).length, 1);
     await db.close();
-    // Loss of the Keystore key is detected without trying to use an unencrypted database.
+    // Loss of the wrapped key is detected without trying to use an unencrypted database,
+    // and is one of the cases where reset is offered immediately.
     await SecureDatabase.channel.invokeMethod<void>('resetKey');
     await expectLater(SecureDatabase.open(), throwsA(isA<LocalResetRequired>()));
-    // Replace the missing key with a different valid wrapping/password pair;
-    // SQLCipher must reject it and the app must offer recovery, not crash.
+    // Replace the missing key with a different valid wrapping/password pair; SQLCipher
+    // must reject it and the app must offer recovery, not crash. On the API-35 emulator
+    // SQLCipher reports a generic `open_failed`, which is retry-first (LocalOpenFailed);
+    // builds reporting "not a database" go straight to reset.
     await SecureDatabase.channel.invokeMethod<String>('databasePassword', {'create': true});
-    await expectLater(SecureDatabase.open(), throwsA(isA<LocalResetRequired>()));
+    await expectLater(SecureDatabase.open(), throwsA(anyOf(isA<LocalOpenFailed>(), isA<LocalResetRequired>())));
     await SecureDatabase.resetAfterConsent();
     db = await SecureDatabase.open();
     expect(await SecureDatabase.needsResync(db.path), true);

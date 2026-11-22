@@ -27,5 +27,5 @@ module = ["app.geometry.*"]
 follow_imports = "silent"
 
 [[tool.mypy.overrides]]
-module = ["svglib.*"]
+module = ["svglib.*", "arabic_reshaper.*", "bidi.*"]
 ignore_missing_imports = true

@@ -30,15 +30,43 @@ class Bootstrap extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => ref.watch(databaseProvider).when(
     data:(db) => Workspace(controller:ref.watch(controllerProvider(db)), toggleLocale:toggleLocale),
     loading:() => const Scaffold(body:Center(child:CircularProgressIndicator())),
-    error:(error,stack) => error is LocalResetRequired
-      ? LocalResetScreen(warning:error, onReset:() => ref.invalidate(databaseProvider))
-      : Scaffold(body:Center(child:SelectableText('Local database unavailable. Restart the app or seek assistance. / پایگاه داده در دسترس نیست.'))));
+    error:(error,stack) {
+      void reset() { ref.read(openRetryCountProvider.notifier).state = 0; ref.invalidate(databaseProvider); }
+      void retry() { ref.read(openRetryCountProvider.notifier).state++; ref.invalidate(databaseProvider); }
+      if (error is LocalResetRequired) return LocalResetScreen(warning:error, onReset:reset);
+      if (error is LocalOpenFailed) {
+        // A generic open failure may be transient: the destructive reset is offered only
+        // after at least one explicit retry has also failed.
+        return ref.watch(openRetryCountProvider) == 0
+          ? LocalOpenFailedScreen(onRetry:retry)
+          : LocalResetScreen(warning:const LocalResetRequired(invalidKey:true), onReset:reset, onRetry:retry);
+      }
+      return const Scaffold(body:Center(child:SelectableText('Local database unavailable. Restart the app or seek assistance. / پایگاه داده در دسترس نیست.')));
+    });
+}
+
+/// Number of explicit "try again" attempts after a generic local-database open failure.
+final openRetryCountProvider = StateProvider<int>((ref) => 0);
+
+class LocalOpenFailedScreen extends StatelessWidget {
+  final VoidCallback onRetry;
+  const LocalOpenFailedScreen({super.key, required this.onRetry});
+  @override
+  Widget build(BuildContext context) => Scaffold(body:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),
+    child:Column(mainAxisSize:MainAxisSize.min, children:[
+      Text('Local database could not be opened / پایگاه داده محلی باز نشد', style:Theme.of(context).textTheme.titleLarge),
+      const Text('This may be temporary. No data has been deleted. Try again.\n'
+        'ممکن است موقتی باشد. هیچ داده‌ای حذف نشده است. دوباره تلاش کنید.'),
+      FilledButton(onPressed:onRetry, child:const Text('Try again / تلاش دوباره')),
+    ]))));
 }
 
 class LocalResetScreen extends StatefulWidget {
   final LocalResetRequired warning;
   final VoidCallback onReset;
-  const LocalResetScreen({super.key, required this.warning, required this.onReset});
+  /// When set, retrying is shown before the destructive reset (generic open failures).
+  final VoidCallback? onRetry;
+  const LocalResetScreen({super.key, required this.warning, required this.onReset, this.onRetry});
   @override
   State<LocalResetScreen> createState() => _LocalResetScreenState();
 }
@@ -60,6 +88,10 @@ class _LocalResetScreenState extends State<LocalResetScreen> {
           'Only data already on the server can be re-synced after signing in.\n'
           'حذف داده‌های محلی دائمی است. تغییرات همگام‌نشده، داده‌های محلی و عکس‌ها قابل بازیابی از سرور نیستند.'),
         if (error != null) Text(error!),
+        if (widget.onRetry != null) ...[
+          const Text('Trying again did not open the database. / تلاش دوباره پایگاه داده را باز نکرد.'),
+          FilledButton(onPressed:busy ? null : widget.onRetry, child:const Text('Try again / تلاش دوباره')),
+        ],
         FilledButton(onPressed:busy ? null : () async {
           final yes = await showDialog<bool>(context:context,builder:(dialog) => AlertDialog(
             title:const Text('Delete local data? / حذف داده‌های محلی؟'),

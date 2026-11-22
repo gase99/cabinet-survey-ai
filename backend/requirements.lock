@@ -6,6 +6,8 @@
 #
 alembic==1.20.1
     # via -r backend/requirements.txt
+arabic-reshaper==3.1.0
+    # via -r backend/requirements.txt
 annotated-doc==0.0.7
     # via fastapi
 annotated-types==0.8.0
@@ -101,6 +103,8 @@ pygments==2.21.0
 pypdf==6.21.4
     # via -r backend/requirements.txt
 pytest==8.4.2
+    # via -r backend/requirements.txt
+python-bidi==0.6.12
     # via -r backend/requirements.txt
 python-dateutil==2.9.0.post0
     # via -r backend/requirements.txt

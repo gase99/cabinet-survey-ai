@@ -18,7 +18,7 @@ from app.services.provenance import (
     validate_optional_provenance_refs,
 )
 from app.services.provider_config import configured_provider
-from app.services.uploads import validated_audio_upload, validated_upload
+from app.services.uploads import validated_audio_upload, validated_image_upload
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -92,7 +92,8 @@ async def sketch_analysis(
     project_id, asset_id = validate_optional_provenance_refs(
         db, user_id=user.id, project_id=project_id, asset_id=asset_id
     )
-    data, _ = await validated_upload(file, images_only=True)
+    # Only the re-encoded, metadata-free copy is hashed and sent to any provider.
+    data = (await validated_image_upload(file)).data
     image_digest = hashlib.sha256(data).hexdigest()
 
     try:
