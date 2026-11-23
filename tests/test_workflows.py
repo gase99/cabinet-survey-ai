@@ -26,3 +26,17 @@ def test_personal_apk_dispatch_uses_app_validator_and_no_secrets():
     assert 'secrets.' not in workflow
     validator_test = (ROOT / 'apps/client/test/dispatch_api_url_test.dart').read_text()
     assert 'validateApiBase(supplied, release: false)' in validator_test
+
+
+def test_emulator_failure_artifact_upload_runs_after_device_script():
+    workflow = yaml.safe_load((ROOT / '.github/workflows/client-ci.yml').read_text())
+    job = workflow['jobs']['android-emulator']
+    steps = job['steps']
+    runner_index = next(i for i, step in enumerate(steps) if step.get('uses') == 'reactivecircus/android-emulator-runner@v2')
+    artifact_index = next(i for i, step in enumerate(steps) if step.get('name') == 'Upload emulator failure diagnostics')
+    artifact = steps[artifact_index]
+    assert runner_index < artifact_index
+    assert artifact['if'] == 'always()'
+    assert artifact['uses'] == 'actions/upload-artifact@v4'
+    assert artifact['with']['path'] == '${{ runner.temp }}/emulator-diagnostics/'
+    assert 'scripts/android-emulator-smoke.sh' in steps[runner_index]['with']['script']
